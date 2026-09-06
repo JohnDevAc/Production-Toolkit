@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Production Toolkit</AssemblyName>
+    <RootNamespace>ToolkitLauncher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/toolkit.ico</ApplicationIcon>
+    <Description>Install, update and launch your production applications.</Description>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../ToolkitLauncher.Core/ToolkitLauncher.Core.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/*.png"/><Resource Include="Assets/*.ico"/></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../LICENSE.md" LogicalName="ToolkitLauncher.LICENSE.md"/>
+    <EmbeddedResource Include="../../THIRD-PARTY-NOTICES.md" LogicalName="ToolkitLauncher.THIRD-PARTY-NOTICES.md"/>
+  </ItemGroup>
+</Project>
