@@ -28,6 +28,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
         theme = null;
         Notify(nameof(Icon)); Notify(nameof(Theme));
     }
+    public void UpdateInstalledIcon(BitmapSource? installed) => UpdateIcons(installed, remoteIcon);
     public ReleaseChannel[] Channels { get; } = [ReleaseChannel.Stable, ReleaseChannel.Development];
     private ReleaseChannel channel;
     public ReleaseChannel Channel { get => channel; set { channel = value; Recompute(); ChannelChanged?.Invoke(this); } }
@@ -40,7 +41,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public bool ShowChannelNote => !Definition.IsEnvironment;
     public string EnvironmentSummary => "Environment · " + (EnvironmentStatus?.Status ?? "Not checked");
     public string EnvironmentColour => EnvironmentStatus?.Colour ?? "#617082";
-    public string EnvironmentDetail => EnvironmentStatus?.Detail ?? "Local components are checked on startup or Check for updates.";
+    public string EnvironmentDetail => EnvironmentStatus?.Detail ?? "Local components are checked on startup, after setup closes or Check for updates.";
     public List<EnvironmentComponent>? EnvironmentComponents => EnvironmentStatus?.Components;
     public bool ShowCompact => Definition.IsEnvironment ? EnvironmentStatus?.State == EnvironmentInstallationState.NotInstalled : Installed is null;
     public bool ShowDetails => !ShowCompact;

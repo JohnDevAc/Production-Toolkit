@@ -3,7 +3,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.3.0</Version>
+    <Version>1.3.1</Version>
     <Company>John Lightfoot</Company>
     <Authors>John Lightfoot</Authors>
     <Copyright>Copyright © 2026 John Lightfoot. All rights reserved. Proprietary. Free for non-commercial use.</Copyright>

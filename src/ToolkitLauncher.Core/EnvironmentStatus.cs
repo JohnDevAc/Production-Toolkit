@@ -64,7 +64,7 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
         else if (evidence.WatchdogRunning != true) notes.Add(evidence.WatchdogRunning == false ? "KiloLink watchdog is stopped or disabled." : "KiloLink watchdog state is unknown.");
         if (evidence.RestartPending) notes.Add("Setup is waiting for a Windows restart or continuation.");
         if (!string.IsNullOrWhiteSpace(evidence.Note)) notes.Add(evidence.Note);
-        notes.Add("Local state checked " + checkedAt.ToLocalTime().ToString("dd MMM, HH:mm") + ". Refresh on startup or Check for updates.");
+        notes.Add("Local state checked " + checkedAt.ToLocalTime().ToString("dd MMM, HH:mm") + ". Refreshes after setup, on startup or Check for updates.");
         return new(state,
         [
             new("KiloLink Server Pro", kilo,

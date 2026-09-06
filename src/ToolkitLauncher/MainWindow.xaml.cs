@@ -192,6 +192,55 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await CheckToolkitUpdateAsync(userRequested: true);
     }
 
+    // Recheck all local cards because Environment Setup can also install the PC
+    // Agent. Keep release snapshots and their API cooldown untouched.
+    public async Task RefreshInstalledAsync()
+    {
+        if (shutdown.IsCancellationRequested) return;
+        await Task.WhenAll(Cards.Select(async card =>
+        {
+            card.Checking = true;
+            var custom = local.Preferences.LaunchPaths.GetValueOrDefault(card.Definition.Id);
+            var setup = local.Preferences.Setups.GetValueOrDefault(card.Definition.Id);
+            try
+            {
+                var result = await Task.Run(async () =>
+                {
+                    var found = InstallationService.Find(card.Definition, custom, setup);
+                    var icon = found is null ? null : IconService.ReadInstalled(found.Path);
+                    var environment = card.Definition.IsEnvironment ? await EnvironmentStatusService.ReadAsync(shutdown) : null;
+                    return (Found: found, Icon: icon, Environment: environment);
+                }, shutdown);
+                card.Installed = result.Found;
+                card.EnvironmentStatus = result.Environment;
+                card.UpdateInstalledIcon(result.Icon);
+            }
+            catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+            catch (Exception error) { Report(card, "Could not refresh the installed application. " + Friendly(error)); }
+            finally { card.Checking = false; }
+        }));
+        Notify(nameof(Summary));
+    }
+
+    private async Task RunSetupAsync(AppCard card, string path)
+    {
+        card.InstallerRunning = true;
+        card.Activity = "Installer open · complete the steps in its window.";
+        try
+        {
+            using var process = InstallationService.StartSetup(path);
+            await process.WaitForExitAsync(shutdown);
+            card.Activity = "";
+            local.Log($"{card.Name}: installer exited with code {process.ExitCode}.");
+            // Failed or cancelled setup may still have installed a component, or
+            // removed one during maintenance. Detection is authoritative, not exit 0.
+            await RefreshInstalledAsync();
+            if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart to finish applying changes.");
+            else if (process.ExitCode != 0) Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
+        }
+        finally { card.InstallerRunning = false; }
+    }
+
     private async Task CheckToolkitUpdateAsync(bool userRequested = false)
     {
         if (PreviewMode || selfUpdating || shutdown.IsCancellationRequested || Cards.Any(c => c.Busy)) return;
@@ -272,15 +321,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             // Several downloads may finish together; serialize external installation wizards.
             if (Cards.Any(c => c != card && c.InstallerRunning))
             { Report(card, "Download ready. Finish the other installer, then select " + card.InstallText + "."); return; }
-            card.InstallerRunning = true;
-            card.Activity = "Installer open · complete the steps in its window.";
-            using var process = InstallationService.StartSetup(setupPath!);
-            await process.WaitForExitAsync(shutdown);
-            card.Activity = "";
-            local.Log($"{card.Name}: installer exited with code {process.ExitCode}.");
-            // Installed versions, icons and releases refresh only at startup or on an explicit check.
-            if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart. Reopen the toolkit afterward to refresh version status.");
-            else if (process.ExitCode != 0) Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
+            await RunSetupAsync(card, setupPath!);
         }
         catch (OperationCanceledException) { card.Activity = ""; local.Log(card.Name + ": download cancelled."); }
         catch (Win32Exception e) when (e.NativeErrorCode == 1223) { card.Activity = ""; local.Log(card.Name + ": administrator prompt cancelled."); }
@@ -291,16 +332,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private static string Friendly(Exception e) => e is TaskCanceledException ? "The connection timed out. Try again when your connection is available." : e.Message;
     private void Report(AppCard card, string message) { card.Activity = message; local.Log(card.Name + ": " + message); }
     private void CancelClick(object sender, RoutedEventArgs e) => Card(sender).Cancellation?.Cancel();
-    private void LaunchClick(object sender, RoutedEventArgs e)
+    private async void LaunchClick(object sender, RoutedEventArgs e)
     {
         var card = Card(sender);
         try
         {
             if (card.Installed is null) return;
+            if (card.Definition.IsEnvironment)
+            {
+                if (Cards.Any(c => c.InstallerRunning)) { Report(card, "Finish the open installer before starting another installation."); return; }
+                card.Busy = true; Notify(nameof(CanRefresh));
+                try { await RunSetupAsync(card, card.Installed.Path); }
+                finally { card.Busy = false; Notify(nameof(CanRefresh)); }
+                return;
+            }
             InstallationService.Launch(card.Definition, card.Installed);
             card.Activity = "";
             local.Log(card.Name + ": launched.");
         }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+        catch (Win32Exception error) when (error.NativeErrorCode == 1223) { card.Activity = ""; }
         catch (Exception error) { Report(card, Friendly(error)); }
     }
     public event PropertyChangedEventHandler? PropertyChanged;

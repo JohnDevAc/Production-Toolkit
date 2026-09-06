@@ -498,6 +498,7 @@ internal static class Program
     {
         Directory.CreateDirectory(output);
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+        InstallerRefreshTests();
         ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
@@ -672,6 +673,56 @@ internal static class Program
         PresentationTraceSources.DataBindingSource.Flush();
         Check(!bindingErrors.ToString().Contains("Error:"), "UI has no WPF binding errors");
         window.Close();
+    }
+
+    private static void InstallerRefreshTests()
+    {
+        var window = new MainWindow(Path.Combine(Temporary, "installer-refresh"), true);
+        window.Cards.Clear();
+        var paths = new[] { Path.Combine(Temporary, "installed-job.exe"), Path.Combine(Temporary, "installed-agent.exe") };
+        for (var i = 0; i < paths.Length; i++)
+        {
+            var definition = Catalog.Apps[i == 0 ? 1 : 3] with { KnownPaths = [paths[i]], RegistryNames = [] };
+            var release = Release("v" + InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location));
+            release.Assets = [new() { Name = i == 0 ? "NDI-Job-Configurator.exe" : "NDI-Configurator-PC-Agent-win-x64.zip", Size = 100 }];
+            window.Cards.Add(new AppCard(definition) { Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true });
+        }
+        var snapshot = window.Cards[0].Snapshot;
+        var run = typeof(MainWindow).GetMethod("RunSetupAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        void RunFixture(bool remove)
+        {
+            var source = Path.Combine(Temporary, remove ? "remove-fixture.cs" : "install-fixture.cs");
+            var executable = Path.ChangeExtension(source, ".exe");
+            var code = "using System.IO; class Fixture { static int Main() { " + string.Join(" ", paths.Select(path => remove
+                ? "File.Delete(" + JsonSerializer.Serialize(path) + ");"
+                : "File.Copy(" + JsonSerializer.Serialize(typeof(MainWindow).Assembly.Location) + ", " + JsonSerializer.Serialize(path) + ", true);"))
+                + " return " + (remove ? "1" : "0") + "; } }";
+            File.WriteAllText(source, code);
+            var compiler = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"Microsoft.NET\Framework64\v4.0.30319\csc.exe"))
+            { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var argument in new[] { "/nologo", "/target:winexe", "/out:" + executable, source }) compiler.ArgumentList.Add(argument);
+            using (var build = Process.Start(compiler)!) { build.WaitForExit(); Check(build.ExitCode == 0, "Harmless installer fixture compiles"); }
+            var task = (Task)run.Invoke(window, [window.Cards[0], executable])!;
+            var frame = new DispatcherFrame();
+            task.ContinueWith(_ => window.Dispatcher.BeginInvoke(() => frame.Continue = false));
+            Dispatcher.PushFrame(frame);
+            task.GetAwaiter().GetResult();
+        }
+        try
+        {
+            Check(window.Cards.All(card => card.Installed is null && card.CanInstall), "Missing local apps initially offer installation");
+            RunFixture(false);
+            Check(window.Cards.All(card => card.Installed is not null && card.State == UpdateState.Current && card.CanLaunch && !card.CanInstall),
+                "Installer exit refreshes every affected card, version and action automatically");
+            Check(ReferenceEquals(snapshot, window.Cards[0].Snapshot) && window.Cards.All(card => card.Offline),
+                "Post-install detection retains release cache and online-check state");
+            RunFixture(true);
+            Check(window.Cards.All(card => card.Installed is null && card.CanInstall && !card.CanLaunch),
+                "Maintenance removal refreshes cards even when setup exits with an error");
+            Check(window.Cards[0].Activity.Contains("code 1") && !window.Cards[0].InstallerRunning,
+                "Refresh retains the installer failure and clears its running state");
+        }
+        finally { window.Close(); }
     }
 
     private static void ReviewUpdatePrompt(string output)
