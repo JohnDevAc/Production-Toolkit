@@ -1,6 +1,6 @@
 # Third-party application icons and packages
 
-The application cards use the following original project icons, retrieved on 6 September 2026 at the user's request. The icons identify their corresponding applications and retain their upstream ownership and terms; they are not relicensed by this wrapper.
+The application cards use the following original project icons, bundled on 6 September 2026 at the user's request. During startup and update checks the toolkit also reads icons from locally installed applications and retrieves current icons from the corresponding project release. Card colours are derived from these images. The icons identify their corresponding applications and retain their upstream ownership and terms; they are not relicensed by this proprietary wrapper.
 
 | Local resource | Original source | Upstream terms |
 | --- | --- | --- |

@@ -37,16 +37,16 @@
     <ItemsControl x:Name="CardsControl" ItemsSource="{Binding Cards}">
      <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="{Binding Columns}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
      <ItemsControl.ItemTemplate><DataTemplate>
-      <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="20" Margin="4,0,4,12">
+      <Border Background="{Binding Theme.Background}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="10" Padding="20" Margin="4,0,4,12">
        <Grid>
         <Grid.RowDefinitions>
          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
-         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid>
          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-         <Border Width="42" Height="42" Background="#F0F5F7" CornerRadius="8" Margin="0,0,12,0" VerticalAlignment="Top">
+         <Border Width="42" Height="42" Background="{Binding Theme.IconWell}" CornerRadius="8" Margin="0,0,12,0" VerticalAlignment="Top">
           <Image Source="{Binding Icon}" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="{Binding Name}"/>
          </Border>
          <StackPanel Grid.Column="1">
@@ -65,7 +65,7 @@
           <TextBlock Text="{Binding Status}" Foreground="{Binding StatusColor}" FontSize="11" FontWeight="SemiBold"/>
          </Border>
         </Grid>
-        <Border Grid.Row="3" Background="#F6F8FA" BorderBrush="#E5EBF0" BorderThickness="1" CornerRadius="6" Padding="12">
+        <Border Grid.Row="3" Background="{Binding Theme.Panel}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="6" Padding="12">
          <Grid>
           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
           <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
@@ -80,18 +80,13 @@
         <Border Grid.Row="5" MinHeight="16"/>
         <Grid Grid.Row="6">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-         <Button Content="{Binding InstallText}" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
-         <Button Grid.Column="2" Content="{Binding LaunchText}" Click="LaunchClick" IsEnabled="{Binding CanLaunch}"/>
+         <Button Content="{Binding InstallText}" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
+         <Button Grid.Column="2" Content="{Binding LaunchText}" Foreground="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Border}" Click="LaunchClick" IsEnabled="{Binding CanLaunch}"/>
         </Grid>
-        <WrapPanel Grid.Row="7" Margin="0,6,0,0">
-         <Button Content="Download only" Style="{StaticResource Link}" Margin="0,0,20,0" Click="DownloadClick" IsEnabled="{Binding CanDownload}"/>
-         <Button Content="Locate app" Style="{StaticResource Link}" Margin="0,0,20,0" Click="LocateClick" IsEnabled="{Binding CanChoose}"/>
-         <Button Content="Releases ↗" Style="{StaticResource Link}" Click="ReleasesClick"/>
-        </WrapPanel>
-        <StackPanel Grid.Row="8">
+        <StackPanel Grid.Row="7" Margin="0,8,0,0">
          <Grid Visibility="{Binding Busy, Converter={StaticResource VisibleIf}}" Margin="0,8,0,4">
           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <ProgressBar Height="5" Value="{Binding Progress}" IsIndeterminate="{Binding InstallerRunning}" VerticalAlignment="Center" Foreground="#398B80"/>
+          <ProgressBar Height="5" Value="{Binding Progress}" IsIndeterminate="{Binding InstallerRunning}" VerticalAlignment="Center" Foreground="{Binding Theme.Primary}"/>
           <Button Grid.Column="1" Content="Cancel" Style="{StaticResource Link}" Margin="12,0,0,0" Click="CancelClick" Visibility="{Binding CanCancel, Converter={StaticResource VisibleIf}}"/>
          </Grid>
          <TextBlock Text="{Binding Activity}" Foreground="#426779" FontSize="11" Margin="0,2,0,4">
@@ -99,7 +94,7 @@
            <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
           </Style></TextBlock.Style>
          </TextBlock>
-         <TextBlock Text="{Binding CheckedText}" Foreground="#758392" FontSize="10"/>
+         <TextBlock Text="{Binding CheckedText}" Foreground="{StaticResource Muted}" FontSize="10"/>
         </StackPanel>
        </Grid>
       </Border>
@@ -109,7 +104,7 @@
   </ScrollViewer>
   <Border Grid.Row="2" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Background="#FCFDFE" Padding="28,9">
    <StackPanel>
-    <TextBlock Text="© 2026 John Lightfoot · Free for non-commercial use." FontSize="11" Foreground="{StaticResource Muted}"
+    <TextBlock Text="© 2026 John Lightfoot · Proprietary · Free for non-commercial use." FontSize="11" Foreground="{StaticResource Muted}"
      ToolTip="Copyright © 2026 John Lightfoot. All rights reserved. Commercial use requires a separate written licence. See LICENSE.md for the full terms."/>
     <TextBlock Text="{Binding Footer}" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,0">
      <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">

@@ -15,9 +15,19 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public string Glyph => Definition.Glyph;
     public string Accent => Definition.Accent;
     public string IconPath => $"pack://application:,,,/Production Toolkit;component/Assets/{Definition.Id}.ico";
-    private ImageSource? icon;
-    public ImageSource Icon => icon ??= BitmapDecoder.Create(new Uri(IconPath), BitmapCreateOptions.PreservePixelFormat,
-        BitmapCacheOption.OnLoad).Frames.OrderByDescending(f => f.PixelWidth).First();
+    private BitmapSource? bundledIcon;
+    private BitmapSource? installedIcon;
+    private BitmapSource? remoteIcon;
+    private IconTheme? theme;
+    public BitmapSource Icon => installedIcon ?? remoteIcon ?? (bundledIcon ??= BitmapDecoder.Create(new Uri(IconPath),
+        BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames.OrderByDescending(f => f.PixelWidth).First());
+    public IconTheme Theme => theme ??= IconTheme.FromIcon(Icon);
+    public void UpdateIcons(BitmapSource? installed, BitmapSource? remote)
+    {
+        installedIcon = installed; remoteIcon = remote;
+        theme = null;
+        Notify(nameof(Icon)); Notify(nameof(Theme));
+    }
     public ReleaseChannel[] Channels { get; } = [ReleaseChannel.Stable, ReleaseChannel.Development];
     private ReleaseChannel channel;
     public ReleaseChannel Channel { get => channel; set { channel = value; Recompute(); ChannelChanged?.Invoke(this); } }
@@ -34,10 +44,11 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public bool Busy { get => busy; set { busy = value; Recompute(); } }
     private bool installerRunning;
     public bool InstallerRunning { get => installerRunning; set { installerRunning = value; Recompute(); } }
-    public bool CanChoose => !Busy;
-    public bool CanInstall => !Busy && Asset is not null && State != UpdateState.Current;
-    public bool CanDownload => !Busy && Asset is not null;
-    public bool CanLaunch => !Busy && Installed is not null;
+    private bool checking;
+    public bool Checking { get => checking; set { checking = value; Recompute(); } }
+    public bool CanChoose => !Busy && !Checking;
+    public bool CanInstall => CanChoose && Asset is not null && State != UpdateState.Current;
+    public bool CanLaunch => CanChoose && Installed is not null;
     public bool CanCancel => Busy && !InstallerRunning;
     public bool ShowPrimary => State != UpdateState.Current || Installed is null;
     public string InstallText => State switch
@@ -52,7 +63,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public string VersionHeading => Definition.IsEnvironment ? "Local setup" : "Installed";
     public string LatestText => Snapshot is null ? "Not checked" : SelectedRelease is null ? "No release available" : SelectedRelease.Tag +
         (Asset is null ? " · no supported installer" : $" · {Asset.Size / 1048576d:0.#} MB");
-    public string VersionToolTip => Installed is null ? "Use Locate app if this application is installed in a custom folder." : Installed.Version + "\n" + Installed.Path;
+    public string VersionToolTip => Installed is null ? "Checks registered installations and the application's standard installation folders." : Installed.Version + "\n" + Installed.Path;
     public string Status => Snapshot is null ? (Installed is null ? "Not installed" : "Not checked") : State switch
     {
         UpdateState.Current => Offline ? "Current in cache" : "Up to date",

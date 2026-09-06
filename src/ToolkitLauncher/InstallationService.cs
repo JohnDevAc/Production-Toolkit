@@ -12,23 +12,35 @@ public sealed class InstallationService(LocalState state)
 {
     public Installation? Find(AppDefinition app)
     {
-        List<string> paths = [];
-        if (state.Preferences.LaunchPaths.TryGetValue(app.Id, out var custom)) paths.Add(custom);
-        if (app.IsEnvironment && !File.Exists(custom) && state.Preferences.Setups.TryGetValue(app.Id, out var setup) && File.Exists(setup.Path))
+        return Find(app, state.Preferences.LaunchPaths.GetValueOrDefault(app.Id), state.Preferences.Setups.GetValueOrDefault(app.Id));
+    }
+
+    // Inputs are captured on the UI thread before an asynchronous check starts.
+    public static Installation? Find(AppDefinition app, string? custom, SetupRecord? setup)
+    {
+        if (File.Exists(custom)) return new(custom, ReadVersion(custom));
+        var paths = RegistryPaths(app).Concat(app.KnownPaths.Select(Environment.ExpandEnvironmentVariables));
+        var installedPath = paths.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
+        Installation? installed = installedPath is null ? null : new(installedPath, ReadVersion(installedPath));
+        if (app.IsEnvironment && setup is not null && File.Exists(setup.Path))
         {
             try
             {
                 using var file = File.OpenRead(setup.Path);
                 var digest = "sha256:" + Convert.ToHexString(SHA256.HashData(file));
-                if (string.Equals(digest, setup.Digest, StringComparison.OrdinalIgnoreCase)) return new(setup.Path, setup.Tag, true);
+                if (string.Equals(digest, setup.Digest, StringComparison.OrdinalIgnoreCase))
+                {
+                    // A retained bootstrapper must not hide a newer persistent launcher
+                    // installed by the application's own updater.
+                    var savedVersion = AppVersion.Parse(setup.Tag);
+                    var installedVersion = AppVersion.Parse(installed?.Version);
+                    if (installed is null || savedVersion is not null && installedVersion is not null && savedVersion.CompareTo(installedVersion) > 0)
+                        return new(setup.Path, setup.Tag, true);
+                }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
-        paths.AddRange(app.KnownPaths.Select(Environment.ExpandEnvironmentVariables));
-        paths.AddRange(RegistryPaths(app));
-        foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
-            if (File.Exists(path)) return new(path, ReadVersion(path));
-        return null;
+        return installed;
     }
 
     public static string? ReadVersion(string path)
@@ -46,6 +58,7 @@ public sealed class InstallationService(LocalState state)
     private static IEnumerable<string> RegistryPaths(AppDefinition app)
     {
         List<string> paths = [];
+        if (app.RegistryNames.Length == 0) return paths;
         foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
@@ -72,7 +85,7 @@ public sealed class InstallationService(LocalState state)
 
     public static void Launch(AppDefinition app, Installation installation)
     {
-        if (!File.Exists(installation.Path)) throw new FileNotFoundException("The application has moved or was removed. Use Locate app to choose its executable.");
+        if (!File.Exists(installation.Path)) throw new FileNotFoundException("The application has moved or was removed. Select Check for updates to refresh its location.");
         if (app.IsJob)
         {
             var script = Path.Combine(Path.GetDirectoryName(installation.Path)!, "Launch-NDIJobConfigurator.ps1");

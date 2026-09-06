@@ -1,4 +1,4 @@
-# Production Toolkit — Non-Commercial Licence
+# Production Toolkit — Proprietary Non-Commercial Licence
 
 Copyright © 2026 John Lightfoot. All rights reserved.
 

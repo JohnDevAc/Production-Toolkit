@@ -2,7 +2,7 @@
 
 A native Windows application for installing, updating and launching four production tools from JohnDevAc's GitHub releases.
 
-**Copyright © 2026 John Lightfoot. All rights reserved. Free for non-commercial use.** Commercial use requires a separate written licence. See [LICENSE.md](LICENSE.md).
+**Copyright © 2026 John Lightfoot. All rights reserved. Proprietary software, free for non-commercial use.** Commercial use requires a separate written licence. Public source availability does not make this an open-source licence. See [LICENSE.md](LICENSE.md).
 
 ## Run
 
@@ -14,10 +14,9 @@ The four application cards provide:
 - The installed version and latest published version in that channel.
 - **Install**, **Update**, or **Switch version**, according to the detected installation.
 - **Launch** for installed applications; **Open setup** for Environment Setup.
-- **Download only**, which saves a verified installer or complete ZIP to your chosen location.
-- **Locate app** for an existing installation in a custom location, and **Releases** for upstream release notes.
+- Matching layouts with colours derived from each application's icon.
 
-The app checks releases on startup. Select **Check for updates** to refresh later. Installations are detected again when the toolkit regains focus and after an installer exits. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation.
+The app reads installed versions, icons and release information on startup and during **Check for updates**. Completing an installation started from the toolkit also performs an update check. There is no timer, background polling or recheck when focus returns, a channel changes or an app launches. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
 
 ## Supported applications
 
@@ -34,15 +33,15 @@ The app checks releases on startup. Select **Check for updates** to refresh late
 
 - Stable excludes drafts and prereleases, including legacy `-dev` tags incorrectly marked stable by GitHub. Development uses published prereleases; it does not build branch source or retrieve GitHub Actions artifacts.
 - The latest release is selected by publication date, with pagination. An unavailable development release never falls back to stable. Releases without a recognized installer show that limitation.
-- Installed versions come from executable product metadata, preserving development identifiers. Build metadata does not affect comparisons; Windows versions such as `1.3.2.0` match `v1.3.2`. Unknown versions are reported explicitly.
+- Installed versions are reread from executable product metadata during each check, preserving development identifiers. Apps updated internally, replaced in place or removed outside the toolkit are detected on the next check. Registered installation folders, standard paths and locations saved by earlier toolkit versions are supported. Build metadata does not affect comparisons; Windows versions such as `1.3.2.0` match `v1.3.2`. Unknown versions are reported explicitly.
 - Channel changes are explicit. A newer locally installed version is not silently downgraded. Where stable and development publish the exact same SHA-256 package, that equivalent package counts as current in either channel.
-- For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release.
-- Successful installer exit alone is not proof of installation. The toolkit rereads the actual local version afterward. Cancellation, failures and restart-required exit codes are shown separately.
+- For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release. A newer persistent launcher takes precedence over an older saved setup; at equal versions the persistent launcher is preferred.
+- Successful installer exit alone is not proof of installation. The following update check rereads the actual local version. Failures and restart-required exit codes remain visible.
 - If GitHub is offline or rate-limited, cached metadata remains available with its original check time and a **Cached** label. “Current in cache” is not a fresh online check. Previously installed applications remain launchable.
 
 ## Downloads and local data
 
-Preferences, release snapshots, the activity log and verified download cache are in:
+Preferences, release snapshots, icon cache, the activity log and verified download cache are in:
 
 ```text
 %LOCALAPPDATA%\Production Toolkit
@@ -50,7 +49,7 @@ Preferences, release snapshots, the activity log and verified download cache are
 
 Installers are fetched directly from the four projects' GitHub release URLs. Package size and GitHub's SHA-256 digest must match before an installer can run. Releases without a digest require manual installation via their Releases page. Downloads write to temporary files first; failures remove incomplete cache files. ZIP extraction rejects traversal, absolute paths, alternate streams, reserved Windows names, symlinks, duplicate paths and excessive extraction sizes.
 
-Downloaded applications are not bundled into the wrapper. The internal cache is beneath the local data folder above. It can be cleared manually when no installer is running; clearing a retained Environment Setup executable also removes that saved launch target. User-exported downloads remain in the location selected in the save dialog.
+Downloaded applications are not bundled into the wrapper. The internal cache is beneath the local data folder above. It can be cleared manually when no installer is running; clearing a retained Environment Setup executable also removes that saved launch target.
 
 The executable is currently unsigned. Windows may show its standard publisher or SmartScreen prompt.
 
@@ -60,7 +59,11 @@ The WPF application declares **Per-Monitor V2 DPI awareness**, uses logical pixe
 
 On desktops too small to hold the complete UI, the window stays within the work area and retains vertical scrolling so every control remains accessible. The layout switches from two columns to one below 1,000 logical pixels. Buttons have keyboard focus states, text labels and standard tab navigation; status is conveyed with both text and colour. The footer identifies John Lightfoot's copyright and the non-commercial licence.
 
-Each application uses its upstream icon. The wrapper has an original toolkit icon, supplied as an editable SVG and an ICO with 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 pixel images. Icons are embedded into the executable, and application cards select the largest available source image for scaling.
+Each application uses its own icon. At startup and during update checks, the toolkit extracts the current icon directly from the installed executable without launching it or relying on the Windows shell icon cache. If no installed icon is available, it retrieves the project icon at the selected release tag. HTTP ETags and an on-disk cache preserve working icons when offline; embedded upstream icons are the final fallback. Repository icon paths are listed in `Catalog.cs`; if a project moves an icon to a different path, the bundled fallback remains available until that mapping is updated.
+
+Every card uses the same controls, dimensions and spacing. The dominant icon colour supplies tinted card backgrounds, panels and borders, plus matching buttons and progress bars. Text contrast is maintained by darkening the button colour; monochrome icons receive a neutral palette. A changed icon automatically regenerates the palette during the same check. Green/amber version-status colours retain their usual meanings. Selecting a different channel changes version comparisons immediately; its icon is reread during the next update check.
+
+The wrapper has an original toolkit icon, supplied as an editable SVG and an ICO with 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 pixel images. Cards select the largest available icon frame for scaling.
 
 The UI review runner renders the actual WPF view at 100%, 150%, 200% and 250%, plus narrower 720- and 640-pixel layouts. It checks startup sizes against simulated monitor work areas, the absence of scrollbars when the UI fits, equal card widths, control containment, overlapping buttons, and WPF binding errors. Review images use illustrative version states. This verifies rendering and layout; moving the app between physical monitors with different DPI still deserves a hardware acceptance check.
 
@@ -74,7 +77,7 @@ Build on Windows with the .NET 8 SDK:
 
 This runs the offline regression/UI suite and publishes a standalone executable, distributable ZIP and checksums to `artifacts/release`. No third-party NuGet dependencies are used. CI runs the same Windows build and retains release artifacts and UI review images.
 
-Pushing a version tag such as `v1.0.0` runs that same build and publishes a GitHub Release only after the checks pass. The tag must match the version in `Directory.Build.props`. Release downloads include the executable, ZIP, SHA-256 checksums and licence notices.
+Pushing a version tag such as `v1.1.0` runs that same build and publishes a GitHub Release only after the checks pass. The tag must match the version in `Directory.Build.props`. Release downloads include the executable, ZIP, SHA-256 checksums and licence notices.
 
 Development launch:
 
@@ -86,6 +89,12 @@ Run tests and create review images:
 
 ```powershell
 dotnet run --project .\tests\ToolkitLauncher.Tests -c Release -- --ui artifacts\ui-review
+```
+
+Optional live icon check for the current stable and development releases of all four projects:
+
+```powershell
+dotnet run --project .\tests\ToolkitLauncher.Tests -c Release -- --live-icons
 ```
 
 Optional live integration check (downloads roughly 350 MB of current stable packages into a temporary directory, verifies and prepares them, and removes the test data; it **does not execute installers**):

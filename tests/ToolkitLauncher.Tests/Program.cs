@@ -17,6 +17,7 @@ using ToolkitLauncher.Core;
 internal static class Program
 {
     private static int count;
+    private static readonly Dictionary<string, BitmapSource> LiveIcons = [];
     private static readonly string Temporary = Path.Combine(Path.GetTempPath(), "ToolkitTests-" + Guid.NewGuid().ToString("N"));
     [STAThread]
     private static int Main(string[] args)
@@ -25,6 +26,7 @@ internal static class Program
         try
         {
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
+            IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             if (args.Contains("--ui")) ReviewUi(Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).FirstOrDefault() ?? "artifacts/ui-review"));
             Console.WriteLine($"PASS: {count} assertions.");
             return 0;
@@ -141,12 +143,122 @@ internal static class Program
         var executable = typeof(MainWindow).Assembly.Location;
         local.Preferences.LaunchPaths[customApp.Id] = executable;
         var finder = new InstallationService(local);
-        Check(AppVersion.Parse(finder.Find(customApp)?.Version)?.CompareTo(AppVersion.Parse("1.0.0")) == 0, "Installed version read from binary metadata");
+        Check(AppVersion.Parse(finder.Find(customApp)?.Version)?.CompareTo(AppVersion.Parse("1.1.0")) == 0, "Installed version read from binary metadata");
+        var replaceable = Path.Combine(Temporary, "internally-updated.exe");
+        File.Copy(executable, replaceable);
+        local.Preferences.LaunchPaths[customApp.Id] = replaceable;
+        var before = finder.Find(customApp);
+        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), replaceable, true);
+        var after = finder.Find(customApp);
+        Check(before?.Path == after?.Path && before?.Version != after?.Version && after?.Version == InstallationService.ReadVersion(replaceable),
+            "An internal update replacing the same executable is detected on the next check");
+        var environment = Catalog.Apps[0] with { KnownPaths = [replaceable], RegistryNames = [] };
+        var saved = new SetupRecord(executable, "v1.0.0", "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))));
+        Check(InstallationService.Find(environment, null, saved)?.Path == replaceable,
+            "Older retained setup does not mask an externally updated persistent Environment launcher");
+        File.Delete(replaceable);
+        Check(InstallationService.Find(environment, null, saved)?.IsSavedSetup == true, "Verified Environment setup remains a launch fallback");
+        Check(finder.Find(customApp) is null, "An externally removed app is no longer marked installed");
         local.Preferences.LaunchPaths[customApp.Id] = Path.Combine(Temporary, "missing.exe");
         Check(finder.Find(customApp) is null, "Missing saved path does not report installed");
         File.WriteAllText(Path.Combine(local.Root, "settings.json"), "{broken");
         Check(new LocalState(local.Root).Warning is not null && Directory.GetFiles(local.Root, "settings.json.*.bak").Length == 1, "Damaged settings preserved and recovered");
         if (live) await LiveAsync();
+    }
+
+    private static async Task IconTestsAsync(bool live)
+    {
+        static BitmapSource Solid(byte red, byte green, byte blue, byte alpha = 255)
+        {
+            var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { blue, green, red, alpha }, 4);
+            bitmap.Freeze(); return bitmap;
+        }
+        static byte[] Png(BitmapSource bitmap)
+        {
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var stream = new MemoryStream(); encoder.Save(stream); return stream.ToArray();
+        }
+        var red = Solid(230, 40, 60); var blue = Solid(20, 130, 235);
+        var redTheme = IconTheme.FromIcon(red); var blueTheme = IconTheme.FromIcon(blue);
+        Check(redTheme.Primary.Color.R > redTheme.Primary.Color.B && blueTheme.Primary.Color.B > blueTheme.Primary.Color.R,
+            "Card palettes follow the icon's dominant colour");
+        foreach (var icon in new[] { red, blue, Solid(250, 220, 30), Solid(255, 255, 255), Solid(255, 0, 0, 0) })
+        {
+            var palette = IconTheme.FromIcon(icon);
+            Check(IconTheme.Contrast(palette.Primary.Color, Colors.White) >= 7 &&
+                IconTheme.Contrast(palette.Primary.Color, palette.Background.Color) >= 4.5,
+                "Icon palette keeps primary and secondary button text readable");
+        }
+        Check(IconTheme.FromIcon(Solid(255, 0, 0, 0)).Primary.Color == IconTheme.FromIcon(Solid(255, 255, 255)).Primary.Color,
+            "Transparent and monochrome icons use a consistent neutral fallback");
+        var card = new AppCard(Catalog.Apps[0]);
+        var changes = new List<string?>(); card.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        card.UpdateIcons(red, blue);
+        Check(ReferenceEquals(card.Icon, red), "Installed icon takes precedence over the repository icon");
+        var previous = card.Theme.Primary.Color;
+        card.UpdateIcons(blue, red);
+        Check(card.Theme.Primary.Color != previous && changes.Contains("Icon") && changes.Contains("Theme"),
+            "A replaced icon refreshes both image and colour bindings");
+        card.UpdateIcons(null, red);
+        Check(ReferenceEquals(card.Icon, red), "Removing an installation restores its repository icon");
+
+        var nativePath = Path.Combine(Temporary, "icon-update.exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), nativePath);
+        var native = IconService.ReadInstalled(nativePath);
+        Check(native is { IsFrozen: true, PixelWidth: > 0 }, "Installed executable icon extracted without launching it");
+        File.Copy(typeof(MainWindow).Assembly.Location, nativePath, true);
+        var replacement = IconService.ReadInstalled(nativePath);
+        Check(replacement is null || !Png(native!).SequenceEqual(Png(replacement)), "Icon reread detects a binary replaced at the same path");
+        File.Delete(nativePath);
+        Check(IconService.ReadInstalled(nativePath) is null, "Removed executable icon is not retained by a shell cache");
+
+        var requests = 0;
+        var redBytes = Png(red); var blueBytes = Png(blue);
+        using var http = new HttpClient(new FakeHandler(request =>
+        {
+            requests++;
+            Check(request.RequestUri!.AbsoluteUri.Contains("raw.githubusercontent.com/JohnDevAc/Kiloview-Environment-Setup/v1.0.0/assets/setup.ico"),
+                "Remote icon comes from the selected upstream release");
+            if (requests == 2)
+            {
+                Check(request.Headers.IfNoneMatch.Any(t => t.Tag == "\"first\""), "Cached icon revalidated with its ETag");
+                return new(HttpStatusCode.NotModified);
+            }
+            if (requests == 4) return new(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) };
+            if (requests == 5) return new(HttpStatusCode.ServiceUnavailable);
+            if (requests == 6)
+            {
+                var oversized = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([]) };
+                oversized.Content.Headers.ContentLength = 6 * 1024 * 1024; return oversized;
+            }
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(requests == 1 ? redBytes : blueBytes) };
+            response.Headers.ETag = new(requests == 1 ? "\"first\"" : "\"second\""); return response;
+        }));
+        var service = new IconService(http, Path.Combine(Temporary, "icons"));
+        for (var i = 1; i <= 6; i++)
+        {
+            // Recreate the service to verify cache survival across application sessions.
+            if (i == 5) service = new(http, Path.Combine(Temporary, "icons"));
+            var icon = await service.ReadRemoteAsync(Catalog.Apps[0], "v1.0.0", default);
+            Check(icon is { IsFrozen: true } && IconTheme.FromIcon(icon).Primary.Color == (i <= 2 ? redTheme : blueTheme).Primary.Color,
+                "Remote icon refresh/cache survives response " + i + " (new, unchanged, changed, corrupt, offline, oversized)");
+        }
+        if (live)
+        {
+            using var liveHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var liveIcons = new IconService(liveHttp, Path.Combine(Temporary, "live-icons"));
+            foreach (var definition in Catalog.Apps)
+            {
+                var snapshot = await new GitHubClient(liveHttp).GetReleasesAsync(definition, default);
+                foreach (var channel in new[] { ReleaseChannel.Stable, ReleaseChannel.Development })
+                {
+                    var release = ReleaseSelection.Latest(snapshot.Releases, channel)!;
+                    var icon = await liveIcons.ReadRemoteAsync(definition, release.Tag, default);
+                    Check(icon is { PixelWidth: >= 64 }, $"Live {definition.Name}: {channel} {release.Tag} icon is available at full resolution");
+                    LiveIcons[definition.Id + channel] = icon!;
+                }
+            }
+        }
     }
 
     private static async Task LiveAsync()
@@ -191,6 +303,7 @@ internal static class Program
             card.Snapshot = new([release], new(2026, 9, 6, 12, 30, 0, TimeSpan.Zero));
             card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]);
             card.Offline = false; card.Channel = i == 3 ? ReleaseChannel.Development : ReleaseChannel.Stable;
+            if (LiveIcons.TryGetValue(card.Definition.Id + card.Channel, out var icon)) card.UpdateIcons(null, icon);
         }
         var root = (FrameworkElement)window.Content;
         window.Content = null; root.DataContext = window;
@@ -218,7 +331,8 @@ internal static class Program
             if (mustFit) Check(scroll.ScrollableHeight < 1 && scroll.ScrollableWidth < 1, "Startup " + label + ": all four apps visible without scrollbars");
             else Check(scroll.ScrollableHeight > 0 && scroll.ScrollableWidth < 1, "Startup " + label + ": scrolling retained only for limited desktop space");
             Check(!Descendants<Button>(root).Any(b => b.Content?.ToString()?.Contains("Downloads folder") == true), "Startup " + label + ": downloads-folder link removed");
-            Check(Descendants<TextBlock>(root).Any(t => t.Text == "© 2026 John Lightfoot · Free for non-commercial use."), "Startup " + label + ": copyright and licence visible");
+            Check(!Descendants<Button>(root).Any(b => b.Content?.ToString() is "Download only" or "Locate app" or "Releases ↗"), "Startup " + label + ": extra card links removed");
+            Check(Descendants<TextBlock>(root).Any(t => t.Text == "© 2026 John Lightfoot · Proprietary · Free for non-commercial use."), "Startup " + label + ": proprietary copyright and licence visible");
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(client.Width * scale), (int)Math.Ceiling(client.Height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
             bitmap.Render(root);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -241,6 +355,24 @@ internal static class Program
             var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
             Check(cards.Length == 4, "UI " + label + ": four cards rendered");
             Check(cards.Select(c => Math.Round(c.ActualWidth, 2)).Distinct().Count() == 1, "UI " + label + ": equal card widths");
+            if (label == "100")
+            {
+                var firstCard = window.Cards[0]; var originalIcon = firstCard.Icon;
+                var originalColour = firstCard.Theme.Primary.Color;
+                var controls = Descendants<Control>(cards[0]).ToArray();
+                Rect Bounds(Control control) => control.TransformToAncestor(cards[0]).TransformBounds(new Rect(control.RenderSize));
+                var before = controls.Select(Bounds).ToArray();
+                firstCard.UpdateIcons(null, window.Cards[2].Icon);
+                root.UpdateLayout();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                root.UpdateLayout();
+                Check(controls.Select(Bounds).SequenceEqual(before), "Changing an icon and its palette preserves every control's bounds");
+                Check(firstCard.Theme.Primary.Color != originalColour &&
+                    ((SolidColorBrush)Descendants<Button>(cards[0]).First().Background).Color == firstCard.Theme.Primary.Color,
+                    "Rendered buttons immediately adopt the changed icon's palette");
+                firstCard.UpdateIcons(null, originalIcon);
+                root.UpdateLayout();
+            }
             foreach (var card in cards)
             {
                 var buttons = Descendants<Button>(card).Where(b => b.IsVisible || b.Visibility == Visibility.Visible).Where(b => b.ActualWidth > 0).ToArray();

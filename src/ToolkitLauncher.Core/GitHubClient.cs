@@ -15,7 +15,7 @@ public sealed class GitHubClient(HttpClient http)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get,
                 $"https://api.github.com/repos/JohnDevAc/{app.Repository}/releases?per_page=100&page={page}");
-            request.Headers.UserAgent.ParseAdd("Production-Toolkit/1.0");
+            request.Headers.UserAgent.ParseAdd("Production-Toolkit/1.1");
             request.Headers.Accept.ParseAdd("application/vnd.github+json");
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
             using var response = await http.SendAsync(request, cancellationToken);

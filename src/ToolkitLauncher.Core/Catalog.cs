@@ -9,6 +9,12 @@ public sealed record AppDefinition(string Id, string Name, string Subtitle, stri
     string[] KnownPaths, string[] RegistryNames)
 {
     public string RepositoryUrl => $"https://github.com/JohnDevAc/{Repository}";
+    public string RepositoryIconPath => Id switch
+    {
+        "environment" => "assets/setup.ico", "job" => "wwwroot/NDIJobConfigurator.ico",
+        "resolume" => "src/ResolumeConfigurator/Assets/app-icon.ico", "pc-agent" => "assets/KiloviewSetup.ico",
+        _ => throw new InvalidOperationException("No icon source configured for this application.")
+    };
     public bool IsEnvironment => Id == "environment";
     public bool IsJob => Id == "job";
 }

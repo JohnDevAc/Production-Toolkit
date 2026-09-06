@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
 using ToolkitLauncher.Core;
 
 namespace ToolkitLauncher;
@@ -12,15 +11,17 @@ namespace ToolkitLauncher;
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
     private readonly LocalState local;
-    private readonly InstallationService installations;
     private readonly HttpClient apiHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly HttpClient iconHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly HttpClient downloadHttp = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly GitHubClient github;
     private readonly PackageService packages;
+    private readonly IconService icons;
     private readonly CancellationTokenSource lifetime = new();
+    private readonly CancellationToken shutdown;
     public ObservableCollection<AppCard> Cards { get; } = [];
     private bool refreshing;
-    public bool CanRefresh => !refreshing;
+    public bool CanRefresh => !refreshing && !Cards.Any(c => c.Busy);
     public string RefreshText => refreshing ? "Checking…" : "Check for updates";
     public int Columns { get; private set; } = 2;
     public string Summary
@@ -39,8 +40,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow(string? dataRoot, bool preview)
     {
         PreviewMode = preview;
+        shutdown = lifetime.Token;
         local = new(dataRoot);
-        installations = new(local);
+        icons = new(iconHttp, Path.Combine(local.Root, "Icons"));
         github = new(apiHttp);
         packages = new(downloadHttp, local.DownloadRoot);
         foreach (var app in Catalog.Apps)
@@ -66,11 +68,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 await RefreshAsync();
                 // Release details may add a line. Fit once more only if the user has
                 // left the launch size unchanged, preserving subsequent manual resizing.
-                if (!lifetime.IsCancellationRequested && WindowState == WindowState.Normal &&
+                if (!shutdown.IsCancellationRequested && WindowState == WindowState.Normal &&
                     Math.Abs(Width - initialSize.Width) < 1 && Math.Abs(Height - initialSize.Height) < 1)
                     FitStartupWindow();
             };
-            Activated += (_, _) => Rescan();
         }
         Closing += (_, e) =>
         {
@@ -81,7 +82,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             if (!e.Cancel) lifetime.Cancel();
         };
-        Closed += (_, _) => { apiHttp.Dispose(); downloadHttp.Dispose(); lifetime.Dispose(); };
+        Closed += (_, _) => { apiHttp.Dispose(); iconHttp.Dispose(); downloadHttp.Dispose(); lifetime.Dispose(); };
         if (local.Warning is not null) Footer = local.Warning;
     }
 
@@ -118,92 +119,81 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateLayout();
     }
 
-    private void Rescan()
-    {
-        if (PreviewMode) return;
-        foreach (var card in Cards) { card.Installed = installations.Find(card.Definition); card.Recompute(); }
-        Notify(nameof(Summary));
-    }
-
     public async Task RefreshAsync()
     {
-        if (refreshing || PreviewMode) return;
-        refreshing = true; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText)); Rescan();
+        if (refreshing || PreviewMode || shutdown.IsCancellationRequested) return;
+        refreshing = true; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText));
         try
         {
             await Task.WhenAll(Cards.Select(async card =>
             {
+                card.Checking = true;
+                // Snapshot preferences before moving file/registry reads off the UI thread.
+                var custom = local.Preferences.LaunchPaths.GetValueOrDefault(card.Definition.Id);
+                var setup = local.Preferences.Setups.GetValueOrDefault(card.Definition.Id);
+                var installedTask = Task.Run(() =>
+                {
+                    var found = InstallationService.Find(card.Definition, custom, setup);
+                    return (Found: found, Icon: found is null ? null : IconService.ReadInstalled(found.Path));
+                }, shutdown);
                 try
                 {
-                    var snapshot = await github.GetReleasesAsync(card.Definition, lifetime.Token);
-                    card.Snapshot = snapshot; card.Offline = false;
-                    local.SaveCache(card.Definition, snapshot);
-                    if (!card.Busy) card.Activity = "";
+                    try
+                    {
+                        var snapshot = await github.GetReleasesAsync(card.Definition, shutdown);
+                        card.Snapshot = snapshot; card.Offline = false;
+                        local.SaveCache(card.Definition, snapshot);
+                        if (!card.Busy) card.Activity = "";
+                    }
+                    catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+                    catch (Exception e)
+                    {
+                        card.Offline = true;
+                        if (!card.Busy) Report(card, "Could not check releases. " + Friendly(e));
+                    }
+                    var installed = await installedTask;
+                    card.Installed = installed.Found;
+                    // The installed binary is authoritative. The release icon is a cached
+                    // fallback for applications that have not been installed yet.
+                    var remote = await icons.ReadRemoteAsync(card.Definition, card.SelectedRelease?.Tag ?? "main", shutdown);
+                    card.UpdateIcons(installed.Icon, remote);
                 }
-                catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+                catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
                 catch (Exception e)
                 {
-                    card.Offline = true;
-                    if (!card.Busy) Report(card, "Could not check releases. " + Friendly(e));
+                    if (!card.Busy) Report(card, "Could not read the local application. " + Friendly(e));
                 }
-                card.Recompute();
+                finally { card.Checking = false; }
             }));
         }
         finally { refreshing = false; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText)); Notify(nameof(Summary)); }
     }
 
-    private async void RefreshClick(object sender, RoutedEventArgs e) => await RefreshAsync();
+    private async void RefreshClick(object sender, RoutedEventArgs e) { if (CanRefresh) await RefreshAsync(); }
     private static AppCard Card(object sender) => (AppCard)((FrameworkElement)sender).DataContext;
-    private async void InstallClick(object sender, RoutedEventArgs e) => await PrepareAsync(Card(sender), true);
-    private async void DownloadClick(object sender, RoutedEventArgs e)
-    {
-        var card = Card(sender);
-        if (card.Asset is not { } asset) return;
-        var picker = new SaveFileDialog
-        {
-            Title = "Save " + card.Name + " installer", FileName = asset.Name, OverwritePrompt = true,
-            Filter = Path.GetExtension(asset.Name).Equals(".zip", StringComparison.OrdinalIgnoreCase) ? "ZIP package (*.zip)|*.zip" : "Installer (*.exe)|*.exe"
-        };
-        if (picker.ShowDialog(this) == true) await PrepareAsync(card, false, picker.FileName);
-    }
+    private async void InstallClick(object sender, RoutedEventArgs e) => await PrepareAsync(Card(sender));
 
-    private async Task PrepareAsync(AppCard card, bool install, string? exportPath = null)
+    private async Task PrepareAsync(AppCard card)
     {
         if (card.Busy || card.Asset is not { } asset || card.SelectedRelease is not { } release) return;
-        if (install && Cards.Any(c => c.InstallerRunning))
+        if (Cards.Any(c => c.InstallerRunning))
         {
             Report(card, "Finish the open installer before starting another installation."); return;
         }
-        card.Busy = true; card.Progress = 0;
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        card.Busy = true; card.Progress = 0; Notify(nameof(CanRefresh));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         card.Cancellation = cancellation;
-        var operationName = install ? "Install" : "Download";
         try
         {
-            local.Log($"{operationName}: {card.Name} {release.Tag} ({asset.Name})");
-            var progress = new Progress<TransferProgress>(p => { card.Activity = p.Message; card.Progress = p.Percent; });
-            var package = await packages.PrepareAsync(card.Definition, asset, progress, cancellation.Token, extract: install);
+            local.Log($"Install: {card.Name} {release.Tag} ({asset.Name})");
+            var progress = new Progress<TransferProgress>(p =>
+            {
+                if (!card.Busy || card.InstallerRunning) return;
+                card.Activity = p.Message; card.Progress = p.Percent;
+            });
+            var package = await packages.PrepareAsync(card.Definition, asset, progress, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             card.Progress = 100;
-            if (!install)
-            {
-                if (exportPath is not null && !string.Equals(Path.GetFullPath(exportPath), Path.GetFullPath(package.DownloadPath), StringComparison.OrdinalIgnoreCase))
-                {
-                    var temporary = exportPath + "." + Guid.NewGuid().ToString("N") + ".partial";
-                    try
-                    {
-                        await using (var source = File.OpenRead(package.DownloadPath))
-                        await using (var destination = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131072, true))
-                            await source.CopyToAsync(destination, cancellation.Token);
-                        cancellation.Token.ThrowIfCancellationRequested();
-                        File.Move(temporary, exportPath, true);
-                    }
-                    finally { if (File.Exists(temporary)) File.Delete(temporary); }
-                }
-                Report(card, "Downloaded and verified · " + Path.GetFileName(exportPath ?? package.DownloadPath));
-                local.Log("Saved download: " + (exportPath ?? package.DownloadPath));
-                return;
-            }
             // Several downloads may finish together; serialize external installation wizards.
             if (Cards.Any(c => c != card && c.InstallerRunning))
             { Report(card, "Download ready. Finish the other installer, then select " + card.InstallText + "."); return; }
@@ -215,18 +205,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 local.Preferences.Setups[card.Definition.Id] = new(package.SetupPath, release.Tag, asset.Digest!);
                 local.Save();
             }
-            await process.WaitForExitAsync(lifetime.Token);
-            Rescan();
+            await process.WaitForExitAsync(shutdown);
+            card.Activity = "";
+            local.Log($"{card.Name}: installer exited with code {process.ExitCode}.");
+            // Completing a user-started installation performs an update check too.
+            // Focus changes and ordinary launch/channel buttons never read app files.
+            await RefreshAsync();
             if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart. Version status will be rechecked afterward.");
-            else if (process.ExitCode == 0)
-                Report(card, card.State == UpdateState.Current ? "Installer closed · selected version detected." :
-                    "Installer closed. " + (card.Installed is null ? "Installation was not detected; use Locate app if needed." : "Current local version has been rechecked."));
-            else Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
+            else if (process.ExitCode != 0) Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
         }
-        catch (OperationCanceledException) { Report(card, "Download cancelled. Incomplete download removed."); }
-        catch (Win32Exception e) when (e.NativeErrorCode == 1223) { Report(card, "Windows administrator prompt was cancelled."); }
+        catch (OperationCanceledException) { card.Activity = ""; local.Log(card.Name + ": download cancelled."); }
+        catch (Win32Exception e) when (e.NativeErrorCode == 1223) { card.Activity = ""; local.Log(card.Name + ": administrator prompt cancelled."); }
         catch (Exception e) { Report(card, Friendly(e)); }
-        finally { card.Cancellation = null; card.InstallerRunning = false; card.Busy = false; if (!lifetime.IsCancellationRequested) Rescan(); }
+        finally { card.Cancellation = null; card.InstallerRunning = false; card.Busy = false; Notify(nameof(CanRefresh)); }
     }
 
     private static string Friendly(Exception e) => e is TaskCanceledException ? "The connection timed out. Try again when your connection is available." : e.Message;
@@ -239,31 +230,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (card.Installed is null) return;
             InstallationService.Launch(card.Definition, card.Installed);
-            Report(card, card.Definition.Id == "pc-agent" ? "Agent launched · look for its icon in the Windows system tray." : "Application launched.");
-        }
-        catch (Exception error) { Report(card, Friendly(error)); Rescan(); }
-    }
-    private void LocateClick(object sender, RoutedEventArgs e)
-    {
-        var card = Card(sender);
-        var picker = new OpenFileDialog { Title = "Locate " + card.Name + " executable", Filter = "Windows application (*.exe)|*.exe", CheckFileExists = true };
-        if (picker.ShowDialog(this) != true) return;
-        try
-        {
-            // Avoid mistaking the downloaded bootstrapper for the installed application.
-            if (!card.Definition.ExecutableNames.Contains(Path.GetFileName(picker.FileName), StringComparer.OrdinalIgnoreCase))
-            { Report(card, "Choose the installed application: " + string.Join(" or ", card.Definition.ExecutableNames)); return; }
-            local.Preferences.LaunchPaths[card.Definition.Id] = picker.FileName;
-            local.Save(); Rescan();
-            Report(card, "Application location saved.");
+            card.Activity = "";
+            local.Log(card.Name + ": launched.");
         }
         catch (Exception error) { Report(card, Friendly(error)); }
-    }
-    private void ReleasesClick(object sender, RoutedEventArgs e)
-    {
-        var card = Card(sender);
-        try { InstallationService.OpenUrl(card.Definition.RepositoryUrl + "/releases"); }
-        catch (Exception error) { Report(card, error.Message); }
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
