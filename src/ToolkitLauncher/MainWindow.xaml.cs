@@ -17,11 +17,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly GitHubClient github;
     private readonly PackageService packages;
     private readonly IconService icons;
+    private readonly SelfUpdateService updater;
+    private bool selfUpdating;
+    private bool updatePromptOpen;
+    private bool installerHandoff;
+    public bool DashboardEnabled => !selfUpdating;
+    public bool CanCloseForMaintenance => !Cards.Any(c => c.Busy) && (!updatePromptOpen || installerHandoff);
     private readonly CancellationTokenSource lifetime = new();
     private readonly CancellationToken shutdown;
     public ObservableCollection<AppCard> Cards { get; } = [];
     private bool refreshing;
-    public bool CanRefresh => !refreshing && !Cards.Any(c => c.Busy);
+    public bool CanRefresh => !refreshing && !selfUpdating && !Cards.Any(c => c.Busy);
     public string RefreshText => refreshing ? "Checking…" : "Check for updates";
     public int Columns { get; private set; } = 2;
     public string Summary
@@ -37,12 +43,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public void SetLayoutWidth(double width) { Columns = width < 1000 ? 1 : 2; Notify(nameof(Columns)); }
 
     public MainWindow() : this(null, false) { }
-    public MainWindow(string? dataRoot, bool preview)
+    public MainWindow(string? dataRoot, bool preview, bool checkOnStartup = true)
     {
         PreviewMode = preview;
         shutdown = lifetime.Token;
         local = new(dataRoot);
         icons = new(iconHttp, Path.Combine(local.Root, "Icons"));
+        updater = new(apiHttp, downloadHttp, Path.Combine(local.Root, "Updates"));
         github = new(apiHttp);
         packages = new(downloadHttp, local.DownloadRoot);
         foreach (var app in Catalog.Apps)
@@ -65,7 +72,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 FitStartupWindow();
                 var initialSize = new Size(Width, Height);
-                await RefreshAsync();
+                if (checkOnStartup)
+                {
+                    await RefreshAsync();
+                    await CheckToolkitUpdateAsync();
+                }
                 // Release details may add a line. Fit once more only if the user has
                 // left the launch size unchanged, preserving subsequent manual resizing.
                 if (!shutdown.IsCancellationRequested && WindowState == WindowState.Normal &&
@@ -169,7 +180,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         finally { refreshing = false; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText)); Notify(nameof(Summary)); }
     }
 
-    private async void RefreshClick(object sender, RoutedEventArgs e) { if (CanRefresh) await RefreshAsync(); }
+    private async void RefreshClick(object sender, RoutedEventArgs e)
+    {
+        if (!CanRefresh) return;
+        await RefreshAsync();
+        await CheckToolkitUpdateAsync();
+    }
+
+    private async Task CheckToolkitUpdateAsync()
+    {
+        if (PreviewMode || selfUpdating || shutdown.IsCancellationRequested || Cards.Any(c => c.Busy)) return;
+        selfUpdating = true; Notify(nameof(CanRefresh)); Notify(nameof(DashboardEnabled));
+        try
+        {
+            var update = await updater.CheckAsync(shutdown);
+            if (update is null || shutdown.IsCancellationRequested) return;
+            var prompt = new UpdateWindow(updater, update) { Owner = this };
+            updatePromptOpen = true;
+            if (prompt.ShowDialog() != true || prompt.InstallerPath is null) return;
+            updatePromptOpen = false;
+            // The installer asks this instance to close only once it is ready to replace
+            // the files. A failed/cancelled installer can therefore leave the app usable.
+            using var process = System.Diagnostics.Process.Start(SelfUpdateService.StartInfo(prompt.InstallerPath))
+                ?? throw new IOException("Windows did not start the toolkit installer.");
+            installerHandoff = true;
+            Footer = "Installing Production Toolkit… the app will close and reopen."; Notify(nameof(Footer));
+            await process.WaitForExitAsync(shutdown);
+            if (process.ExitCode == 0) Close(); // Also closes a development/portable copy after migration.
+            else throw new IOException($"Toolkit installer exited with code {process.ExitCode}. You can retry Check for updates.");
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            Footer = "Could not update Production Toolkit. " + Friendly(error);
+            local.Log(Footer); Notify(nameof(Footer));
+        }
+        finally { selfUpdating = false; updatePromptOpen = false; installerHandoff = false; Notify(nameof(CanRefresh)); Notify(nameof(DashboardEnabled)); }
+    }
     private static AppCard Card(object sender) => (AppCard)((FrameworkElement)sender).DataContext;
     private async void InstallClick(object sender, RoutedEventArgs e) => await PrepareAsync(Card(sender));
 

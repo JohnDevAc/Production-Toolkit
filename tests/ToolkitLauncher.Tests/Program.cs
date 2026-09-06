@@ -27,6 +27,7 @@ internal static class Program
         {
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
+            ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
             if (args.Contains("--ui")) ReviewUi(Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).FirstOrDefault() ?? "artifacts/ui-review"));
             Console.WriteLine($"PASS: {count} assertions.");
             return 0;
@@ -143,7 +144,7 @@ internal static class Program
         var executable = typeof(MainWindow).Assembly.Location;
         local.Preferences.LaunchPaths[customApp.Id] = executable;
         var finder = new InstallationService(local);
-        Check(AppVersion.Parse(finder.Find(customApp)?.Version)?.CompareTo(AppVersion.Parse("1.1.0")) == 0, "Installed version read from binary metadata");
+        Check(AppVersion.Parse(finder.Find(customApp)?.Version)?.CompareTo(AppVersion.Parse(SelfUpdateService.CurrentVersion)) == 0, "Installed version read from binary metadata");
         var replaceable = Path.Combine(Temporary, "internally-updated.exe");
         File.Copy(executable, replaceable);
         local.Preferences.LaunchPaths[customApp.Id] = replaceable;
@@ -261,6 +262,45 @@ internal static class Program
         }
     }
 
+    private static async Task ToolkitUpdateTestsAsync()
+    {
+        var payload = File.ReadAllBytes(typeof(MainWindow).Assembly.Location);
+        var version = SelfUpdateService.CurrentVersion;
+        var release = Release("v" + version);
+        var asset = new ReleaseAsset
+        {
+            Name = $"Production-Toolkit-{version}-win-x64-Setup.exe", Size = payload.Length,
+            DownloadUrl = $"https://github.com/JohnDevAc/Production-Toolkit/releases/download/v{version}/Production-Toolkit-{version}-win-x64-Setup.exe",
+            Digest = "sha256:" + Convert.ToHexString(SHA256.HashData(payload))
+        };
+        release.Assets = [asset];
+        Check(ToolkitUpdates.Available("1.1.0", [release])?.Installer == asset, "Toolkit updater selects the version-matched Windows installer");
+        Check(ToolkitUpdates.Available(version + "+build", [release]) is null, "Same toolkit version never prompts for reinstallation");
+        Check(ToolkitUpdates.Available("99.0.0", [release]) is null, "Toolkit updater never downgrades a newer installation");
+        release.Prerelease = true;
+        Check(ToolkitUpdates.Available("1.1.0", [release]) is null, "Toolkit updater excludes prereleases");
+        release.Prerelease = false; release.Draft = true;
+        Check(ToolkitUpdates.Available("1.1.0", [release]) is null, "Toolkit updater excludes drafts");
+        release.Draft = false;
+        var portable = Release(release.Tag); portable.Assets = [new() { Name = "Production.Toolkit.exe" }];
+        Check(ToolkitUpdates.Available("1.1.0", [portable]) is null, "A portable executable cannot be mistaken for a toolkit installer");
+        var wrong = Release(release.Tag); wrong.Assets = [new() { Name = "Production-Toolkit-9.0.0-win-x64-Setup.exe" }];
+        Check(ToolkitUpdates.Available("1.1.0", [wrong]) is null, "An installer for a different release is not offered");
+        var originalUrl = asset.DownloadUrl;
+        asset.DownloadUrl = "https://example.com/setup.exe";
+        await ThrowsAsync<InvalidDataException>(() => { ToolkitUpdates.Available("1.1.0", [release]); return Task.CompletedTask; }, "Toolkit self-update rejects installers outside its GitHub repository");
+        asset.DownloadUrl = originalUrl;
+        using var http = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) }));
+        var service = new SelfUpdateService(http, http, Path.Combine(Temporary, "toolkit-updates"));
+        var installer = await service.DownloadAsync(new(release, asset), null, default);
+        Check(File.Exists(installer), "Toolkit installer is fully downloaded and verified before handoff");
+        await ThrowsAsync<InvalidDataException>(() => { SelfUpdateService.ValidateInstallerVersion(installer, "99.0.0"); return Task.CompletedTask; }, "Installer binary version must match the offered release");
+        var info = SelfUpdateService.StartInfo(Path.Combine(Temporary, "folder with spaces & symbols", "Setup.exe"));
+        Check(!info.UseShellExecute && info.ArgumentList.Contains("/NORESTART") && info.ArgumentList.Contains("/TOOLKITUPDATE=1") &&
+            info.ArgumentList.Last() == "/LOG=" + info.FileName + ".log", "Installer handoff quotes paths safely, requests app relaunch, and prevents Windows reboot");
+        Check(MaintenanceSession.RequestShutdown() == 2, "Maintenance command exits quietly when no instance is running");
+    }
+
     private static async Task LiveAsync()
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
@@ -289,7 +329,8 @@ internal static class Program
     private static void ReviewUi(string output)
     {
         Directory.CreateDirectory(output);
-        var app = new App(); app.InitializeComponent();
+        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+        ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
         var window = new MainWindow(Path.Combine(Temporary, "ui"), true);
@@ -307,6 +348,8 @@ internal static class Program
         }
         var root = (FrameworkElement)window.Content;
         window.Content = null; root.DataContext = window;
+        root.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, window.FontFamily);
+        root.SetValue(System.Windows.Documents.TextElement.FontSizeProperty, window.FontSize);
         var widerFit = WindowSizing.Select(new Size(1400, 900), new Size(16, 40), w => w >= 1180 ? 800 : 1000);
         Check(widerFit.Width == 1200 && widerFit.Height <= 900, "Startup sizing widens the window when that avoids scrolling");
         Check(typeof(MainWindow).Assembly.GetManifestResourceNames().Contains("ToolkitLauncher.LICENSE.md"), "Non-commercial licence embedded in application");
@@ -410,6 +453,36 @@ internal static class Program
         PresentationTraceSources.DataBindingSource.Flush();
         Check(!bindingErrors.ToString().Contains("Error:"), "UI has no WPF binding errors");
         window.Close();
+    }
+
+    private static void ReviewUpdatePrompt(string output)
+    {
+        using var http = new HttpClient();
+        foreach (var scale in new[] { 1d, 1.5, 2d, 2.5 })
+        {
+            var prompt = new UpdateWindow(new SelfUpdateService(http, http, Temporary), new(Release("v1.3.0"), new ReleaseAsset()));
+            var root = (FrameworkElement)prompt.Content; prompt.Content = null; root.DataContext = prompt;
+            root.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, prompt.FontFamily);
+            root.SetValue(System.Windows.Documents.TextElement.FontSizeProperty, prompt.FontSize);
+            root.Measure(new Size(524, double.PositiveInfinity));
+            var size = new Size(524, root.DesiredSize.Height);
+            root.Arrange(new Rect(size)); root.UpdateLayout();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            root.Measure(new Size(524, double.PositiveInfinity));
+            size = new Size(524, root.DesiredSize.Height);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+            var buttons = Descendants<Button>(root).ToArray();
+            var bounds = buttons.Select(b => b.TransformToAncestor(root).TransformBounds(new Rect(b.RenderSize))).ToArray();
+            Check(buttons.Length == 2 && Math.Abs(buttons[0].ActualWidth - buttons[1].ActualWidth) < 1 &&
+                !bounds[0].IntersectsWith(bounds[1]) && bounds.All(b => b.Left >= 0 && b.Right <= size.Width),
+                $"Update prompt at {scale * 100:0}%: equal buttons, no overlaps or clipping");
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width * scale), (int)Math.Ceiling(size.Height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+            bitmap.Render(root);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var file = File.Create(Path.Combine(output, $"update-prompt-{scale * 100:0}.png")); encoder.Save(file);
+            prompt.Close();
+        }
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {

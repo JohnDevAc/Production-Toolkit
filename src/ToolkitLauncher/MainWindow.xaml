@@ -34,7 +34,7 @@
      </StackPanel>
      <Button Grid.Column="1" Content="{Binding RefreshText}" Click="RefreshClick" IsEnabled="{Binding CanRefresh}" VerticalAlignment="Center"/>
     </Grid>
-    <ItemsControl x:Name="CardsControl" ItemsSource="{Binding Cards}">
+    <ItemsControl x:Name="CardsControl" ItemsSource="{Binding Cards}" IsEnabled="{Binding DashboardEnabled}">
      <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="{Binding Columns}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
      <ItemsControl.ItemTemplate><DataTemplate>
       <Border Background="{Binding Theme.Background}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="10" Padding="20" Margin="4,0,4,12">

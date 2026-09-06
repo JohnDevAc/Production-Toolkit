@@ -6,7 +6,19 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download the Windows executable or ZIP from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest), then double-click **Production Toolkit.exe**. Local builds are in `artifacts/release`. The published Windows x64 executable is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Keep it in any convenient folder or pin it to Start. The toolkit runs without elevation; an application's installer may request administrator approval.
+Download **Production-Toolkit-1.2.0-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+
+The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
+
+## Updating Production Toolkit
+
+On startup, and when you select **Check for updates**, the toolkit checks its own GitHub repository for a newer stable Windows installer. If one is available, choose **Update and restart** or **Later**. Downloads can be cancelled. The installer is not started until its size, GitHub SHA-256 digest and embedded version match the selected release. Failed checks or downloads leave the existing application usable; no periodic polling runs.
+
+Setup asks the running installation to close gracefully once it is ready to replace its files. It retains the installation directory, settings and download/icon caches, replaces the executable, updates the same Windows app entry and shortcuts, and relaunches the installed version. A normal installer run also closes and relaunches an open copy. Active managed-app downloads and installers must finish or be cancelled before maintenance can proceed. Failed or cancelled setup attempts reopen the surviving version when Setup had closed it. Older installers are blocked from downgrading a newer app. Windows is never automatically rebooted.
+
+Uninstall through Windows **Installed apps** or the installed `unins000.exe`. Uninstall closes the toolkit and removes its program files, registration and shortcuts. Settings, caches and user-created files are retained. The four production applications managed by the toolkit remain independently installed.
+
+## Application dashboard
 
 The four application cards provide:
 
@@ -75,9 +87,9 @@ Build on Windows with the .NET 8 SDK:
 .\scripts\Build.ps1
 ```
 
-This runs the offline regression/UI suite and publishes a standalone executable, distributable ZIP and checksums to `artifacts/release`. No third-party NuGet dependencies are used. CI runs the same Windows build and retains release artifacts and UI review images.
+This runs the offline regression/UI suite and publishes a Windows installer, standalone executable, distributable ZIP and checksums to `artifacts/release`. The build downloads a pinned, SHA-256-verified Inno Setup 6.7.3 compiler into `artifacts/tools` when needed. No third-party NuGet dependencies are used. CI runs the same Windows build plus the installer lifecycle test, and retains release artifacts, UI review images and installer logs.
 
-Pushing a version tag such as `v1.1.0` runs that same build and publishes a GitHub Release only after the checks pass. The tag must match the version in `Directory.Build.props`. Release downloads include the executable, ZIP, SHA-256 checksums and licence notices.
+Pushing a version tag such as `v1.2.0` runs that same build and publishes a GitHub Release only after the checks pass. The tag must match the version in `Directory.Build.props`. Release downloads include the installer, executable, ZIP, SHA-256 checksums and licence notices. Future installers must retain `AppId=JohnLightfoot.ProductionToolkit` and the `Production-Toolkit-VERSION-win-x64-Setup.exe` filename pattern for in-place updates.
 
 Development launch:
 
@@ -96,6 +108,14 @@ Optional live icon check for the current stable and development releases of all 
 ```powershell
 dotnet run --project .\tests\ToolkitLauncher.Tests -c Release -- --live-icons
 ```
+
+Test a real install, shortcut targets, an upgrade of a running older copy, relaunch, downgrade protection and uninstall:
+
+```powershell
+.\scripts\Test-Installer.ps1
+```
+
+The lifecycle test builds an older-version fixture, installs it under a unique test identity and workspace directory, and removes its registration and test shortcuts afterward. Test launches use `--skip-startup-checks` to keep the lifecycle checks independent of live GitHub releases; the normal installer and shortcuts always use standard startup checks. It does not install any of the managed production applications. Logs remain in `artifacts/installer-test`. Physical monitor transitions and Windows policy-specific installation restrictions still require hardware acceptance testing.
 
 Optional live integration check (downloads roughly 350 MB of current stable packages into a temporary directory, verifies and prepares them, and removes the test data; it **does not execute installers**):
 

@@ -15,6 +15,10 @@ Kiloview, KiloLink, NDI and Resolume names and marks belong to their respective 
 
 The original Production Toolkit mark is in `assets/toolkit.svg`, with its raster generation script in `scripts/Build-Icon.ps1`.
 
+## Windows installer
+
+Setup and Uninstall are built with [Inno Setup](https://jrsoftware.org/), copyright © 1997–2026 Jordan Russell, with portions copyright © 2000–2026 Martijn Laan. Inno Setup's original embedded copyright notices and web addresses are retained. Its installer engine remains subject to the [Inno Setup licence](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt); Production Toolkit's proprietary licence applies to the toolkit itself.
+
 ## Kiloview Environment Setup icon — MIT licence
 
 Copyright (c) 2026 John Lightfoot
