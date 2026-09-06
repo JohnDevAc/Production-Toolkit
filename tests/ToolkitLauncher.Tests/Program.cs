@@ -26,6 +26,7 @@ internal static class Program
         try
         {
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
+            GitHubCheckTestsAsync().GetAwaiter().GetResult();
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
             if (args.Contains("--ui")) ReviewUi(Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).FirstOrDefault() ?? "artifacts/ui-review"));
@@ -87,7 +88,7 @@ internal static class Program
             Check(pages == 2 && ReleaseSelection.Latest(result.Releases, ReleaseChannel.Stable)?.Tag == stable.Tag, "Pagination finds stable behind 100 prereleases");
         }
         using (var http = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.Forbidden))))
-            await ThrowsAsync<HttpRequestException>(() => new GitHubClient(http).GetReleasesAsync(Catalog.Apps[0], default), "GitHub rate limit becomes actionable error");
+            await ThrowsAsync<HttpRequestException>(() => new GitHubClient(http).GetReleasesAsync(Catalog.Apps[0], default), "GitHub access errors remain visible");
 
         var bytes = Encoding.UTF8.GetBytes("test installer payload");
         var asset = new ReleaseAsset { Id = 1, Name = "Kiloview-Environment-Setup.exe", Size = bytes.Length,
@@ -291,7 +292,7 @@ internal static class Program
         await ThrowsAsync<InvalidDataException>(() => { ToolkitUpdates.Available("1.1.0", [release]); return Task.CompletedTask; }, "Toolkit self-update rejects installers outside its GitHub repository");
         asset.DownloadUrl = originalUrl;
         using var http = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) }));
-        var service = new SelfUpdateService(http, http, Path.Combine(Temporary, "toolkit-updates"));
+        var service = new SelfUpdateService(new GitHubClient(http), http, Path.Combine(Temporary, "toolkit-updates"));
         var installer = await service.DownloadAsync(new(release, asset), null, default);
         Check(File.Exists(installer), "Toolkit installer is fully downloaded and verified before handoff");
         await ThrowsAsync<InvalidDataException>(() => { SelfUpdateService.ValidateInstallerVersion(installer, "99.0.0"); return Task.CompletedTask; }, "Installer binary version must match the offered release");
@@ -299,6 +300,108 @@ internal static class Program
         Check(!info.UseShellExecute && info.ArgumentList.Contains("/NORESTART") && info.ArgumentList.Contains("/TOOLKITUPDATE=1") &&
             info.ArgumentList.Last() == "/LOG=" + info.FileName + ".log", "Installer handoff quotes paths safely, requests app relaunch, and prevents Windows reboot");
         Check(MaintenanceSession.RequestShutdown() == 2, "Maintenance command exits quietly when no instance is running");
+    }
+
+    private static async Task GitHubCheckTestsAsync()
+    {
+        var time = new ManualTime { Now = new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero) };
+        var cachePath = Path.Combine(Temporary, "api-cache.json");
+        var calls = 0;
+        using var http = new HttpClient(new FakeHandler(_ => { calls++; return JsonResponse(new[] { Release("v1.0.0") }); }));
+        var client = new GitHubClient(http, cachePath, time);
+        var fresh = await client.GetReleasesAsync(Catalog.Apps[0], default);
+        var restarted = new GitHubClient(http, cachePath, time);
+        var cached = await restarted.GetReleasesAsync(Catalog.Apps[0], default);
+        Check(calls == 1 && !fresh.IsCached && cached.IsCached && cached.CheckedAt == fresh.CheckedAt,
+            "Rapid restarts reuse releases without changing their checked time");
+        await restarted.GetReleasesAsync(Catalog.Apps[0], default, userRequested: true);
+        Check(calls == 1, "Repeated clicks within one minute do not repeat API requests");
+        time.Now += TimeSpan.FromMinutes(2);
+        await restarted.GetReleasesAsync(Catalog.Apps[0], default);
+        Check(calls == 1, "Startup reuses release information younger than ten minutes");
+        await restarted.GetReleasesAsync(Catalog.Apps[0], default, userRequested: true);
+        Check(calls == 2, "An explicit check can refresh the startup cache after one minute");
+        time.Now += TimeSpan.FromMinutes(10);
+        Check(!(await restarted.GetReleasesAsync(Catalog.Apps[0], default)).IsCached && calls == 3,
+            "Startup refreshes releases once the cached check expires");
+        File.WriteAllText(cachePath, "{damaged");
+        await new GitHubClient(http, cachePath, time).GetReleasesAsync(Catalog.Apps[0], default);
+        Check(calls == 4, "An unreadable API cache does not prevent a check");
+
+        var limitPath = Path.Combine(Temporary, "api-limit.json");
+        var reset = time.Now + TimeSpan.FromMinutes(10);
+        var limitedCalls = 0;
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var limitedHttp = new HttpClient(new AsyncHandler(async (_, token) =>
+        {
+            if (++limitedCalls > 1) return JsonResponse(new[] { Release("v2.0.0") });
+            received.SetResult();
+            await releaseResponse.Task.WaitAsync(token);
+            var response = new HttpResponseMessage(HttpStatusCode.Forbidden);
+            response.Headers.Add("X-RateLimit-Remaining", "0");
+            response.Headers.Add("X-RateLimit-Reset", reset.ToUnixTimeSeconds().ToString());
+            response.Headers.RetryAfter = new(TimeSpan.FromSeconds(5));
+            return response;
+        }));
+        var limitedClient = new GitHubClient(limitedHttp, limitPath, time);
+        var checks = Catalog.Apps.Append(ToolkitUpdates.Application)
+            .Select(app => limitedClient.GetReleasesAsync(app, default, userRequested: true)).ToArray();
+        await received.Task;
+        Check(limitedCalls == 1, "Release requests are serialized across all five applications");
+        releaseResponse.SetResult();
+        foreach (var check in checks)
+            await ThrowsAsync<HttpRequestException>(async () => await check, "A rate limit pauses the shared check queue");
+        Check(limitedCalls == 1, "A blocked check makes no further GitHub API requests");
+        var resumed = new GitHubClient(limitedHttp, limitPath, time);
+        time.Now += TimeSpan.FromMinutes(9);
+        await ThrowsAsync<HttpRequestException>(() => resumed.GetReleasesAsync(Catalog.Apps[0], default, true),
+            "The primary reset deadline survives a restart and overrides a shorter Retry-After");
+        Check(limitedCalls == 1, "Repeated startup and manual checks respect the persisted block");
+        time.Now = reset;
+        Check(limitedCalls == 1, "Expiry alone does not start an automatic retry");
+        var recovered = await resumed.GetReleasesAsync(Catalog.Apps[0], default, true);
+        Check(limitedCalls == 2 && recovered.Releases[0].Tag == "v2.0.0" && !recovered.IsCached,
+            "The next requested check succeeds after GitHub's reset");
+
+        foreach (var useDate in new[] { false, true })
+        {
+            var retryCalls = 0;
+            using var retryHttp = new HttpClient(new FakeHandler(_ =>
+            {
+                retryCalls++;
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = useDate ? new(time.Now + TimeSpan.FromMinutes(3)) : new(TimeSpan.FromMinutes(3));
+                return response;
+            }));
+            var retryClient = new GitHubClient(retryHttp, clock: time);
+            await ThrowsAsync<HttpRequestException>(() => retryClient.GetReleasesAsync(Catalog.Apps[0], default), "A secondary rate limit is reported");
+            time.Now += TimeSpan.FromMinutes(2);
+            await ThrowsAsync<HttpRequestException>(() => retryClient.GetReleasesAsync(Catalog.Apps[1], default), "Retry-After prevents another repository request");
+            Check(retryCalls == 1, "Retry-After " + (useDate ? "date" : "seconds") + " is respected");
+        }
+
+        var permissionCalls = 0;
+        using var permissionHttp = new HttpClient(new FakeHandler(_ => ++permissionCalls == 1
+            ? new(HttpStatusCode.Forbidden) : JsonResponse(Array.Empty<Release>())));
+        var permissionClient = new GitHubClient(permissionHttp, clock: time);
+        await ThrowsAsync<HttpRequestException>(() => permissionClient.GetReleasesAsync(Catalog.Apps[0], default), "Permission errors remain visible");
+        await permissionClient.GetReleasesAsync(Catalog.Apps[1], default);
+        Check(permissionCalls == 2, "A repository permission error does not block other repositories");
+
+        var quotaCalls = 0;
+        using var quotaHttp = new HttpClient(new FakeHandler(_ =>
+        {
+            quotaCalls++;
+            var response = JsonResponse(Array.Empty<Release>());
+            response.Headers.Add("X-RateLimit-Remaining", "0");
+            response.Headers.Add("X-RateLimit-Reset", (time.Now + TimeSpan.FromMinutes(5)).ToUnixTimeSeconds().ToString());
+            return response;
+        }));
+        var quotaClient = new GitHubClient(quotaHttp, clock: time);
+        await quotaClient.GetReleasesAsync(Catalog.Apps[0], default);
+        await ThrowsAsync<HttpRequestException>(() => quotaClient.GetReleasesAsync(Catalog.Apps[1], default), "The last allowed response pauses subsequent requests");
+        Check(quotaCalls == 1, "An exhausted successful response does not wait for a 403 before backing off");
     }
 
     private static async Task LiveAsync()
@@ -388,7 +491,7 @@ internal static class Program
                 window.Cards[0].Busy = true; window.Cards[0].Progress = 48;
                 window.Cards[0].Activity = "Downloading · 48.0 / 100.0 MB";
                 window.Cards[1].Offline = true;
-                window.Cards[1].Activity = "Could not check releases. GitHub is limiting release checks. Try again after 14:00.";
+                window.Cards[1].Activity = "Could not check releases. GitHub checks are paused until 16:04. Saved releases remain available. Check again afterward.";
                 foreach (var card in window.Cards) card.Recompute();
             }
             window.SetLayoutWidth(width);
@@ -460,7 +563,7 @@ internal static class Program
         using var http = new HttpClient();
         foreach (var scale in new[] { 1d, 1.5, 2d, 2.5 })
         {
-            var prompt = new UpdateWindow(new SelfUpdateService(http, http, Temporary), new(Release("v1.3.0"), new ReleaseAsset()));
+            var prompt = new UpdateWindow(new SelfUpdateService(new GitHubClient(http), http, Temporary), new(Release("v1.3.0"), new ReleaseAsset()));
             var root = (FrameworkElement)prompt.Content; prompt.Content = null; root.DataContext = prompt;
             root.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, prompt.FontFamily);
             root.SetValue(System.Windows.Documents.TextElement.FontSizeProperty, prompt.FontSize);
@@ -499,5 +602,14 @@ internal static class Program
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(respond(request)); }
+    }
+    private sealed class AsyncHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => respond(request, cancellationToken);
+    }
+    private sealed class ManualTime : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; }
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 }

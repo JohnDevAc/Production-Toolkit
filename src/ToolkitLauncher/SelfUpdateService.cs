@@ -5,12 +5,12 @@ using ToolkitLauncher.Core;
 
 namespace ToolkitLauncher;
 
-public sealed class SelfUpdateService(HttpClient apiHttp, HttpClient downloadHttp, string cacheRoot)
+public sealed class SelfUpdateService(GitHubClient github, HttpClient downloadHttp, string cacheRoot)
 {
     public static string CurrentVersion => typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
 
-    public async Task<ToolkitUpdate?> CheckAsync(CancellationToken cancellationToken) => ToolkitUpdates.Available(CurrentVersion,
-        (await new GitHubClient(apiHttp).GetReleasesAsync(ToolkitUpdates.Application, cancellationToken)).Releases);
+    public async Task<ToolkitUpdate?> CheckAsync(CancellationToken cancellationToken, bool userRequested = false) => ToolkitUpdates.Available(CurrentVersion,
+        (await github.GetReleasesAsync(ToolkitUpdates.Application, cancellationToken, userRequested)).Releases);
 
     public async Task<string> DownloadAsync(ToolkitUpdate update, IProgress<TransferProgress>? progress, CancellationToken cancellationToken)
     {

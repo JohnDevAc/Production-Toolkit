@@ -24,7 +24,10 @@ public sealed class Release
         Regex.IsMatch(Tag, @"(?i)(^|[-_.])(dev|alpha|beta|rc|preview|nightly)([-_.\d]|$)");
 }
 
-public sealed record ReleaseSnapshot(List<Release> Releases, DateTimeOffset CheckedAt);
+public sealed record ReleaseSnapshot(List<Release> Releases, DateTimeOffset CheckedAt)
+{
+    [JsonIgnore] public bool IsCached { get; init; }
+}
 
 public static class ReleaseSelection
 {

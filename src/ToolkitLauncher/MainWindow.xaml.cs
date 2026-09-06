@@ -49,8 +49,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         shutdown = lifetime.Token;
         local = new(dataRoot);
         icons = new(iconHttp, Path.Combine(local.Root, "Icons"));
-        updater = new(apiHttp, downloadHttp, Path.Combine(local.Root, "Updates"));
-        github = new(apiHttp);
+        github = new(apiHttp, Path.Combine(local.Root, "github-checks.json"));
+        updater = new(github, downloadHttp, Path.Combine(local.Root, "Updates"));
         packages = new(downloadHttp, local.DownloadRoot);
         foreach (var app in Catalog.Apps)
         {
@@ -130,7 +130,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateLayout();
     }
 
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(bool userRequested = false)
     {
         if (refreshing || PreviewMode || shutdown.IsCancellationRequested) return;
         refreshing = true; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText));
@@ -151,8 +151,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 {
                     try
                     {
-                        var snapshot = await github.GetReleasesAsync(card.Definition, shutdown);
-                        card.Snapshot = snapshot; card.Offline = false;
+                        var snapshot = await github.GetReleasesAsync(card.Definition, shutdown, userRequested);
+                        card.Snapshot = snapshot; card.Offline = snapshot.IsCached;
                         local.SaveCache(card.Definition, snapshot);
                         if (!card.Busy) card.Activity = "";
                     }
@@ -183,17 +183,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async void RefreshClick(object sender, RoutedEventArgs e)
     {
         if (!CanRefresh) return;
-        await RefreshAsync();
-        await CheckToolkitUpdateAsync();
+        await RefreshAsync(userRequested: true);
+        await CheckToolkitUpdateAsync(userRequested: true);
     }
 
-    private async Task CheckToolkitUpdateAsync()
+    private async Task CheckToolkitUpdateAsync(bool userRequested = false)
     {
         if (PreviewMode || selfUpdating || shutdown.IsCancellationRequested || Cards.Any(c => c.Busy)) return;
         selfUpdating = true; Notify(nameof(CanRefresh)); Notify(nameof(DashboardEnabled));
         try
         {
-            var update = await updater.CheckAsync(shutdown);
+            var update = await updater.CheckAsync(shutdown, userRequested);
+            Footer = local.Warning ?? ""; Notify(nameof(Footer));
             if (update is null || shutdown.IsCancellationRequested) return;
             var prompt = new UpdateWindow(updater, update) { Owner = this };
             updatePromptOpen = true;

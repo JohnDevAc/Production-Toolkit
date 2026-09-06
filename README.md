@@ -50,6 +50,8 @@ The app reads installed versions, icons and release information only on startup 
 - For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release. A newer persistent launcher takes precedence over an older saved setup; at equal versions the persistent launcher is preferred.
 - Successful installer exit alone is not proof of installation. The next startup or explicit update check rereads the actual local version. Failures and restart-required exit codes remain visible.
 - If GitHub is offline or rate-limited, cached metadata remains available with its original check time and a **Cached** label. “Current in cache” is not a fresh online check. Previously installed applications remain launchable.
+- Rapid restarts reuse successful release checks for ten minutes. **Check for updates** can refresh sooner, but repeated clicks within one minute reuse the last result. Installed versions and icons are still read on startup and each explicit check. The toolkit's own release check uses the same cache and request queue as the four app cards.
+- GitHub API requests run one at a time. A rate limit pauses all remaining API requests until GitHub's reset or `Retry-After` deadline; that deadline survives restarting the toolkit. Expiry never starts an automatic retry: reopen the toolkit or click **Check for updates** afterward. GitHub's unauthenticated allowance is shared by applications using the same public IP, so other software can still exhaust it. See [GitHub's rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
 
 ## Downloads and local data
 
