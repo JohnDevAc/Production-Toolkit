@@ -1,5 +1,9 @@
 # Interoperability and setup readiness
 
+## Additional QA corrections — 6 September 2026
+
+Malformed optional Agent metadata no longer discards otherwise valid Server evidence. It still prevents Client/combined deployments from reporting complete. Unsupported or unreadable component receipts produce an explicit unknown deployment status instead of being interpreted as a legacy Client installation.
+
 ## QA follow-up — 6 September 2026
 
 Configured PC Agent evidence now requires schema 1, nonempty valid endpoint and adapter GUIDs, a usable unicast IPv4 host address and a prefix between /1 and /30. Incomplete, unsupported, link-local, loopback, multicast, network and broadcast state cannot claim a configured installation.

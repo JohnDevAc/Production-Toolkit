@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ToolkitLauncher.Core;
 
+[JsonConverter(typeof(PcAgentConfigurationConverter))]
 public sealed record PcAgentConfiguration(int SchemaVersion, string? EndpointId, string? AdapterId, string? Address, int PrefixLength)
 {
     public bool IsValid => SchemaVersion == 1
@@ -20,4 +23,23 @@ public sealed record PcAgentConfiguration(int SchemaVersion, string? EndpointId,
         var hostMask = uint.MaxValue >> prefix;
         return (number & hostMask) != 0 && (number & hostMask) != hostMask;
     }
+}
+
+// Optional Agent state must not invalidate unrelated server-component evidence.
+public sealed class PcAgentConfigurationConverter : JsonConverter<PcAgentConfiguration>
+{
+    private sealed record Fields(int SchemaVersion, string? EndpointId, string? AdapterId, string? Address, int PrefixLength);
+    public override PcAgentConfiguration Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        try
+        {
+            var fields = document.RootElement.Deserialize<Fields>(options);
+            if (fields is not null) return new(fields.SchemaVersion, fields.EndpointId, fields.AdapterId, fields.Address, fields.PrefixLength);
+        }
+        catch (JsonException) { }
+        return new(0, null, null, null, 0);
+    }
+    public override void Write(Utf8JsonWriter writer, PcAgentConfiguration value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, new Fields(value.SchemaVersion, value.EndpointId, value.AdapterId, value.Address, value.PrefixLength), options);
 }

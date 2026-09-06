@@ -5,6 +5,7 @@ public enum EnvironmentInstallationState { NotInstalled, Partial, Full, Unknown 
 public sealed class EnvironmentEvidence
 {
     public string[]? Roles { get; set; }
+    public bool ComponentReceiptInvalid { get; set; }
     public bool? PcAgent { get; set; }
     public bool? PcAgentConfigured { get; set; }
     public PcAgentConfiguration? PcAgentConfiguration { get; set; }
@@ -45,6 +46,11 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
 
     public static EnvironmentSnapshot From(EnvironmentEvidence evidence, DateTimeOffset checkedAt)
     {
+        if (evidence.ComponentReceiptInvalid)
+            return new(EnvironmentInstallationState.Unknown,
+                [new("Deployment role", "Not verified", "The saved component receipt is unreadable or unsupported. Review Environment Setup and restore compatible ownership information.")],
+                checkedAt, "Deployment completeness cannot be determined from an invalid component receipt.",
+                evidence.NdiTools == true || evidence.PcAgent == true || evidence.Configuration == true || evidence.Distro == true);
         if (evidence.PcAgentConfiguration is not null) evidence.PcAgentConfigured = evidence.PcAgentConfiguration.IsValid;
         var agentNetwork = evidence.PcAgentConfigured != true ? "Local production adapter configuration is required."
             : evidence.PcAgentNetworkAvailable == true ? "Production adapter and saved address are available."

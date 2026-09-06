@@ -441,6 +441,21 @@ internal static class Program
     {
         var validAgent = new PcAgentConfiguration(1, Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "192.0.2.20", 24);
         Check(validAgent.IsValid, "Complete PC Agent state is valid");
+        var invalidReceipt = FullEnvironment(); invalidReceipt.ComponentReceiptInvalid = true;
+        Check(EnvironmentSnapshot.From(invalidReceipt, DateTimeOffset.Now).State == EnvironmentInstallationState.Unknown,
+            "Unsupported role receipts cannot claim a complete deployment");
+        foreach (var malformed in new[] { "{}", "{\"SchemaVersion\":null}", "{\"PrefixLength\":\"invalid\"}", "[]", "false" })
+        {
+            var evidenceJson = System.Text.Json.JsonSerializer.SerializeToNode(FullEnvironment())!;
+            evidenceJson["Roles"] = System.Text.Json.Nodes.JsonNode.Parse("[\"server\"]");
+            evidenceJson["PcAgentConfiguration"] = System.Text.Json.Nodes.JsonNode.Parse(malformed);
+            var evidence = System.Text.Json.JsonSerializer.Deserialize<EnvironmentEvidence>(evidenceJson)!;
+            Check(evidence.PcAgentConfiguration?.IsValid == false && EnvironmentSnapshot.From(evidence, DateTimeOffset.Now).State == EnvironmentInstallationState.Full,
+                "Malformed optional Agent state preserves independently complete server evidence");
+            evidence.Roles = ["server", "client"];
+            Check(EnvironmentSnapshot.From(evidence, DateTimeOffset.Now).State == EnvironmentInstallationState.Partial,
+                "Malformed Agent state still blocks a combined Client installation");
+        }
         foreach (var invalid in new[] { validAgent with { SchemaVersion = 2 }, validAgent with { EndpointId = Guid.Empty.ToString() },
             validAgent with { AdapterId = "" }, validAgent with { Address = null }, validAgent with { Address = "127.0.0.1" },
             validAgent with { Address = "169.254.1.1" }, validAgent with { Address = "224.0.0.1" }, validAgent with { Address = "192.0.2.0" },

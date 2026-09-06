@@ -6,7 +6,7 @@ $result = [ordered]@{
     Watchdog = $null; WatchdogRunning = $null; NdiTools = $null; NdiVersion = $null
     Discovery = $null; DiscoveryRunning = $null; DiscoveryListening = $null
     RestartPending = $false; WebPort = 0; NdiPort = 5959; Note = ''
-    Roles = $null; PcAgent = $null; PcAgentConfigured = $null; PcAgentConfiguration = $null
+    Roles = $null; ComponentReceiptInvalid = $false; PcAgent = $null; PcAgentConfigured = $null; PcAgentConfiguration = $null
 }
 $stateRoot = Join-Path $env:ProgramData 'KiloLink'
 $configPath = Join-Path $stateRoot 'installer-config.json'
@@ -15,8 +15,13 @@ try {
     $receiptPath = Join-Path $stateRoot 'installation-components.json'
     if (Test-Path -LiteralPath $receiptPath) {
         $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
-        if ($receipt.schemaVersion -eq 1) { $result.Roles = @($receipt.roles | Where-Object { $_ -in @('client','server') }) }
+        if ($receipt.schemaVersion -ne 1 -or $receipt.roles -isnot [array] -or @($receipt.roles | Where-Object { $_ -notin @('client','server') }).Count -gt 0) {
+            throw 'Unsupported component receipt.'
+        }
+        $result.Roles = @($receipt.roles)
     }
+} catch { $result.ComponentReceiptInvalid = $true; $notes.Add('The saved component receipt is unreadable or unsupported.') }
+try {
     $agentRoot = Join-Path $env:ProgramFiles 'NDI Configurator\PC Agent'
     $result.PcAgent = (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent.exe')) -and (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent Setup.exe'))
     $agentState = Join-Path $env:LOCALAPPDATA 'NDI Configurator\PC Agent\agent-state.json'
