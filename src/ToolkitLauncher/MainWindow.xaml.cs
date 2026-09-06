@@ -255,10 +255,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await process.WaitForExitAsync(shutdown);
             card.Activity = "";
             local.Log($"{card.Name}: installer exited with code {process.ExitCode}.");
-            // Completing a user-started installation performs an update check too.
-            // Focus changes and ordinary launch/channel buttons never read app files.
-            await RefreshAsync();
-            if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart. Version status will be rechecked afterward.");
+            // Installed versions, icons and releases refresh only at startup or on an explicit check.
+            if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart. Reopen the toolkit afterward to refresh version status.");
             else if (process.ExitCode != 0) Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
         }
         catch (OperationCanceledException) { card.Activity = ""; local.Log(card.Name + ": download cancelled."); }

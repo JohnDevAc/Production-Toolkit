@@ -28,7 +28,7 @@ The four application cards provide:
 - **Launch** for installed applications; **Open setup** for Environment Setup.
 - Matching layouts with colours derived from each application's icon.
 
-The app reads installed versions, icons and release information on startup and during **Check for updates**. Completing an installation started from the toolkit also performs an update check. There is no timer, background polling or recheck when focus returns, a channel changes or an app launches. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
+The app reads installed versions, icons and release information only on startup and during **Check for updates**. Completing an installation does not trigger another check; click **Check for updates** or reopen the toolkit to refresh the cards afterward. There is no timer, background polling or recheck when focus returns, a channel changes or an app launches. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
 
 ## Supported applications
 
@@ -48,7 +48,7 @@ The app reads installed versions, icons and release information on startup and d
 - Installed versions are reread from executable product metadata during each check, preserving development identifiers. Apps updated internally, replaced in place or removed outside the toolkit are detected on the next check. Registered installation folders, standard paths and locations saved by earlier toolkit versions are supported. Build metadata does not affect comparisons; Windows versions such as `1.3.2.0` match `v1.3.2`. Unknown versions are reported explicitly.
 - Channel changes are explicit. A newer locally installed version is not silently downgraded. Where stable and development publish the exact same SHA-256 package, that equivalent package counts as current in either channel.
 - For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release. A newer persistent launcher takes precedence over an older saved setup; at equal versions the persistent launcher is preferred.
-- Successful installer exit alone is not proof of installation. The following update check rereads the actual local version. Failures and restart-required exit codes remain visible.
+- Successful installer exit alone is not proof of installation. The next startup or explicit update check rereads the actual local version. Failures and restart-required exit codes remain visible.
 - If GitHub is offline or rate-limited, cached metadata remains available with its original check time and a **Cached** label. “Current in cache” is not a fresh online check. Previously installed applications remain launchable.
 
 ## Downloads and local data
