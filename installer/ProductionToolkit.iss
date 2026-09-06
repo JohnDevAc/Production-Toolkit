@@ -58,6 +58,7 @@ VersionInfoCopyright=Copyright (C) 2026 John Lightfoot. Proprietary. Free for no
 [Files]
 Source: "{#PublishDirectory}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\INTEROPERABILITY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "maintenance.version"; DestDir: "{app}"; Flags: ignoreversion

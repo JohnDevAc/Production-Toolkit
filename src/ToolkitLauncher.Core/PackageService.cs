@@ -36,6 +36,8 @@ public sealed class PackageService(HttpClient http, string root)
             var partial = target + "." + Guid.NewGuid().ToString("N") + ".partial";
             try
             {
+                progress?.Report(new("Checking required download…", 0));
+                await NdiSuite.Installation.DownloadReadiness.CheckAsync(http, new Uri(asset.DownloadUrl), cancellationToken);
                 progress?.Report(new("Downloading installer…", 0));
                 using var response = await http.GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 response.EnsureSuccessStatusCode();
@@ -46,7 +48,7 @@ public sealed class PackageService(HttpClient http, string root)
                 {
                     var buffer = new byte[131072]; long total = 0; var lastReport = Environment.TickCount64;
                     int read;
-                    while ((read = await source.ReadAsync(buffer, cancellationToken)) != 0)
+                    while ((read = await NdiSuite.Installation.DownloadReadiness.ReadAsync(source, buffer, cancellationToken)) != 0)
                     {
                         total += read;
                         if (total > asset.Size) throw new InvalidDataException("The download exceeds the expected size.");

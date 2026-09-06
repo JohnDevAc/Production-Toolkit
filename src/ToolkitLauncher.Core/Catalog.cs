@@ -12,7 +12,7 @@ public sealed record AppDefinition(string Id, string Name, string Subtitle, stri
     public string RepositoryIconPath => Id switch
     {
         "environment" => "assets/setup.ico", "job" => "wwwroot/NDIJobConfigurator.ico",
-        "resolume" => "src/ResolumeConfigurator/Assets/app-icon.ico", "pc-agent" => "assets/KiloviewSetup.ico",
+        "resolume" => "src/ResolumeConfigurator/Assets/app-icon.ico", "pc-agent" => "assets/PcAgent.ico",
         _ => throw new InvalidOperationException("No icon source configured for this application.")
     };
     public bool IsEnvironment => Id == "environment";

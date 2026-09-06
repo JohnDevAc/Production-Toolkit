@@ -4,6 +4,9 @@ public enum EnvironmentInstallationState { NotInstalled, Partial, Full, Unknown 
 
 public sealed class EnvironmentEvidence
 {
+    public string[]? Roles { get; set; }
+    public bool? PcAgent { get; set; }
+    public bool? PcAgentConfigured { get; set; }
     public bool? Configuration { get; set; }
     public bool? Distro { get; set; }
     public bool? DistroRunning { get; set; }
@@ -40,7 +43,36 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
 
     public static EnvironmentSnapshot From(EnvironmentEvidence evidence, DateTimeOffset checkedAt)
     {
+        var client = evidence.Roles?.Contains("client") == true
+            || evidence.Roles is null && evidence.Configuration == false && evidence.Distro == false
+                && evidence.Watchdog == false && evidence.PcAgent == true;
+        var server = evidence.Roles?.Contains("server") == true || evidence.Configuration == true;
+        if (!client && !server && evidence.Configuration == false && evidence.Distro == false && evidence.Watchdog == false
+            && (evidence.NdiTools == true || evidence.PcAgent == true))
+        {
+            var selectedNone = evidence.Roles is { Length: 0 };
+            return new(selectedNone ? EnvironmentInstallationState.NotInstalled : EnvironmentInstallationState.Unknown,
+            [
+                new("NDI Tools", evidence.NdiTools == true ? "Installed · shared runtime" : "Not installed / not verified", evidence.NdiVersion ?? ""),
+                new("PC Agent", evidence.PcAgent == true ? "Installed independently" : "Not installed / not verified", ""),
+                new("Deployment role", selectedNone ? "No Environment role selected" : "Not verified", "Select Client or Server in Environment Setup to establish its required components.")
+            ], checkedAt, selectedNone ? "Environment server ownership was removed; shared tools were retained." : "Legacy shared tools were found without reliable deployment-role evidence.", true);
+        }
+        if (client && !server)
+        {
+            var complete = evidence.NdiTools == true && evidence.PcAgent == true && evidence.PcAgentConfigured == true;
+            var unknown = evidence.NdiTools is null || evidence.PcAgent is null || evidence.PcAgentConfigured is null;
+            var clientState = evidence.RestartPending ? EnvironmentInstallationState.Partial : complete ? EnvironmentInstallationState.Full
+                : unknown ? EnvironmentInstallationState.Unknown : EnvironmentInstallationState.Partial;
+            return new(clientState,
+            [
+                new("NDI Tools", evidence.NdiTools == true ? "Installed" : evidence.NdiTools == false ? "Not installed" : "Not verified", evidence.NdiVersion ?? ""),
+                new("PC Agent", evidence.PcAgent != true ? "Not installed / not verified" : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required", "Local production adapter configuration is required."),
+                new("Server components", "Not required", "Client deployment uses remote Job Configurator, KiloLink and Discovery as configured.")
+            ], checkedAt, "Client deployment. " + evidence.Note, evidence.NdiTools == true || evidence.PcAgent == true);
+        }
         var required = new[] { evidence.Configuration, evidence.Distro, evidence.Container, evidence.Watchdog, evidence.NdiTools, evidence.Discovery };
+        if (client) required = required.Concat(new[] { evidence.PcAgent, evidence.PcAgentConfigured }).ToArray();
         var any = required.Any(value => value == true) || evidence.RestartPending;
         var state = evidence.RestartPending ? EnvironmentInstallationState.Partial :
             required.All(value => value == true) ? EnvironmentInstallationState.Full :
@@ -73,7 +105,10 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
                 "\nWeb interface: " + (evidence.WebResponding == true ? "responding" : evidence.WebResponding == false ? "not responding" : "not checked") +
                 "\nWatchdog: " + (evidence.WatchdogRunning == true ? "running" : evidence.WatchdogRunning == false ? "stopped or missing" : "not verified")),
             new("NDI Tools", ndi, "Checks NDI Tools registration and its launcher executable. Its desktop applications do not need to be running."),
-            new("NDI Discovery", discovery, "Checks the installed Discovery executable, service or startup task, and its ownership of the listening port.")
+            new("NDI Discovery", discovery, "Checks the installed Discovery executable, service or startup task, and its ownership of the listening port."),
+            .. client ? new[] { new EnvironmentComponent("PC Agent", evidence.PcAgent != true ? "Not installed / not verified"
+                : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required",
+                "Required by the selected Client role on this combined host.") } : Array.Empty<EnvironmentComponent>()
         ], checkedAt, string.Join("\n", notes), any);
     }
 }

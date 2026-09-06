@@ -108,12 +108,27 @@ internal static class Program
             var prepared = await service.PrepareAsync(Catalog.Apps[0], asset, null, default);
             Check(File.Exists(prepared.SetupPath), "Verified executable prepared without launching");
             await service.PrepareAsync(Catalog.Apps[0], asset, null, default);
-            Check(calls == 1, "Verified download cache reused");
+            Check(calls == 2, "Verified download cache reused without another preflight or transfer");
             File.WriteAllText(prepared.DownloadPath, "tampered");
             await service.PrepareAsync(Catalog.Apps[0], asset, null, default);
-            Check(calls == 2 && await PackageService.VerifyAsync(prepared.DownloadPath, asset, default), "Tampered cache is downloaded and reverified");
+            Check(calls == 4 && await PackageService.VerifyAsync(prepared.DownloadPath, asset, default), "Tampered cache is checked, downloaded and reverified");
         }
         var bad = new ReleaseAsset { Name = asset.Name, Size = asset.Size, DownloadUrl = asset.DownloadUrl, Digest = "sha256:" + new string('0', 64) };
+        using (var offline = new HttpClient(new FakeHandler(_ => throw new HttpRequestException("DNS unavailable"))))
+        {
+            var source = new PackageService(offline, Path.Combine(Temporary, "offline-source"));
+            await ThrowsAsync<IOException>(() => source.PrepareAsync(Catalog.Apps[0], asset, null, default), "Unavailable source blocks preparation before any installer exists");
+            Check(!Directory.GetFiles(Path.Combine(Temporary, "offline-source"), "*.exe", SearchOption.AllDirectories).Any(), "Offline failure does not create an installable payload");
+            var cached = new PackageService(offline, Path.Combine(Temporary, "downloads"));
+            Check(File.Exists((await cached.PrepareAsync(Catalog.Apps[0], asset, null, default)).SetupPath), "Complete verified cache remains installable offline");
+        }
+        using (var captive = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new StringContent("Sign in", Encoding.UTF8, "text/html") })))
+            await ThrowsAsync<IOException>(() => NdiSuite.Installation.DownloadReadiness.CheckAsync(captive, new Uri(asset.DownloadUrl), default), "Captive portal is not package readiness");
+        using (var noHead = new HttpClient(new FakeHandler(request => request.Method == HttpMethod.Head ? new(HttpStatusCode.MethodNotAllowed) : new(HttpStatusCode.PartialContent) { Content = new ByteArrayContent([1]) })))
+        {
+            await NdiSuite.Installation.DownloadReadiness.CheckAsync(noHead, new Uri(asset.DownloadUrl), default);
+            Check(true, "Package readiness supports sources that reject HEAD");
+        }
         using (var http = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) })))
         {
             var service = new PackageService(http, Path.Combine(Temporary, "bad-download"));
@@ -424,6 +439,21 @@ internal static class Program
     };
     private static void EnvironmentTests()
     {
+        var clientEvidence = new EnvironmentEvidence { Roles = ["client"], NdiTools = true, PcAgent = true, PcAgentConfigured = true,
+            Configuration = false, Distro = false, Watchdog = false, Discovery = false };
+        var clientSnapshot = EnvironmentSnapshot.From(clientEvidence, DateTimeOffset.Now);
+        Check(clientSnapshot.State == EnvironmentInstallationState.Full && clientSnapshot.Components.Any(c => c.Status == "Not required"), "Client completeness does not require local server components");
+        clientEvidence.PcAgentConfigured = false;
+        Check(EnvironmentSnapshot.From(clientEvidence, DateTimeOffset.Now).State == EnvironmentInstallationState.Partial, "Unconfigured client Agent is incomplete");
+        clientEvidence.PcAgentConfigured = true; clientEvidence.Roles = null;
+        Check(EnvironmentSnapshot.From(clientEvidence, DateTimeOffset.Now).State == EnvironmentInstallationState.Full, "Legacy client role is inferred from complete client evidence");
+        var sharedOnly = EmptyEnvironment(); sharedOnly.NdiTools = true;
+        Check(EnvironmentSnapshot.From(sharedOnly, DateTimeOffset.Now).State == EnvironmentInstallationState.Unknown, "Shared NDI alone does not imply a missing server deployment");
+        sharedOnly.Roles = [];
+        Check(EnvironmentSnapshot.From(sharedOnly, DateTimeOffset.Now).State == EnvironmentInstallationState.NotInstalled, "Server removal leaves shared tools without inventing a selected role");
+        var combined = FullEnvironment(); combined.Roles = ["server", "client"]; combined.PcAgent = true; combined.PcAgentConfigured = true;
+        Check(EnvironmentSnapshot.From(combined, DateTimeOffset.Now) is { State: EnvironmentInstallationState.Full, Components.Count: 4 },
+            "Combined deployment displays and checks its PC Agent requirement");
         var now = DateTimeOffset.Now;
         var full = FullEnvironment();
         var complete = EnvironmentSnapshot.From(full, now);
@@ -624,12 +654,14 @@ internal static class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
-        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only" })
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host" })
         {
             foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
             var environment = window.Cards[0];
             var evidence = FullEnvironment();
             if (scenario == "partial-environment") evidence.Discovery = false;
+            else if (scenario == "combined-host") { evidence.Roles = ["server", "client"]; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
+            else if (scenario == "client-only") { evidence = EmptyEnvironment(); evidence.Roles = ["client"]; evidence.NdiTools = true; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
             else if (scenario == "unverified-environment") { evidence.DistroRunning = false; evidence.Container = null; evidence.ContainerRunning = null; }
             else
             {

@@ -6,10 +6,27 @@ $result = [ordered]@{
     Watchdog = $null; WatchdogRunning = $null; NdiTools = $null; NdiVersion = $null
     Discovery = $null; DiscoveryRunning = $null; DiscoveryListening = $null
     RestartPending = $false; WebPort = 0; NdiPort = 5959; Note = ''
+    Roles = $null; PcAgent = $null; PcAgentConfigured = $null
 }
 $stateRoot = Join-Path $env:ProgramData 'KiloLink'
 $configPath = Join-Path $stateRoot 'installer-config.json'
 $notes = New-Object 'System.Collections.Generic.List[string]'
+try {
+    $receiptPath = Join-Path $stateRoot 'installation-components.json'
+    if (Test-Path -LiteralPath $receiptPath) {
+        $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        if ($receipt.schemaVersion -eq 1) { $result.Roles = @($receipt.roles | Where-Object { $_ -in @('client','server') }) }
+    }
+    $agentRoot = Join-Path $env:ProgramFiles 'NDI Configurator\PC Agent'
+    $result.PcAgent = (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent.exe')) -and (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent Setup.exe'))
+    $agentState = Join-Path $env:LOCALAPPDATA 'NDI Configurator\PC Agent\agent-state.json'
+    $result.PcAgentConfigured = $false
+    if (Test-Path -LiteralPath $agentState) {
+        $agentConfig = Get-Content -LiteralPath $agentState -Raw | ConvertFrom-Json
+        $endpointId = [guid]::Empty
+        $result.PcAgentConfigured = [guid]::TryParse([string]$agentConfig.endpointId, [ref]$endpointId) -and -not [string]::IsNullOrWhiteSpace($agentConfig.adapterId)
+    }
+} catch { $notes.Add('The selected component receipt or PC Agent configuration could not be verified.') }
 try {
     $result.RestartPending = Test-Path -LiteralPath (Join-Path $stateRoot 'resume-state.json')
     if (Test-Path -LiteralPath $configPath) {

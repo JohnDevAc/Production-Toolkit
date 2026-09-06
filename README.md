@@ -1,5 +1,7 @@
 # Production Toolkit
 
+See [interoperability and setup readiness](INTEROPERABILITY.md) for client/server status and verified offline packages.
+
 A native Windows application for installing, updating and launching four production tools from JohnDevAc's GitHub releases.
 
 **Copyright © 2026 John Lightfoot. All rights reserved. Proprietary software, free for non-commercial use.** Commercial use requires a separate written licence. Public source availability does not make this an open-source licence. See [LICENSE.md](LICENSE.md).
