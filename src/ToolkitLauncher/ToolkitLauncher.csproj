@@ -13,6 +13,7 @@
   <ItemGroup><Resource Include="Assets/*.png"/><Resource Include="Assets/*.ico"/></ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../LICENSE.md" LogicalName="ToolkitLauncher.LICENSE.md"/>
+    <EmbeddedResource Include="Diagnostics/Read-Environment.ps1" LogicalName="ToolkitLauncher.Read-Environment.ps1"/>
     <EmbeddedResource Include="../../THIRD-PARTY-NOTICES.md" LogicalName="ToolkitLauncher.THIRD-PARTY-NOTICES.md"/>
   </ItemGroup>
 </Project>

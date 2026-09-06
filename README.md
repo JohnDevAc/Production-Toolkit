@@ -6,7 +6,7 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download **Production-Toolkit-1.2.0-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.0-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
@@ -20,7 +20,7 @@ Uninstall through Windows **Installed apps** or the installed `unins000.exe`. Un
 
 ## Application dashboard
 
-The four application cards provide:
+Uninstalled applications show a large app icon, their name, a Stable / Development selector and a single **Install** button. Installed applications keep their detailed cards:
 
 - **Stable / Development** selection, remembered separately for each application.
 - The installed version and latest published version in that channel.
@@ -39,7 +39,13 @@ The app reads installed versions, icons and release information only on startup 
 | Resolume Arena Configurator | [Resolume-Configurator](https://github.com/JohnDevAc/Resolume-Configurator) | Uses the versioned Windows x64 Setup executable and launches the installed native app. |
 | NDI Configurator PC Agent | [Kiloview-PC-Onboarding](https://github.com/JohnDevAc/Kiloview-PC-Onboarding) | Downloads the complete self-contained ZIP, extracts the entire payload and runs its Setup executable. Launch starts the installed tray agent. Recognizes legacy Kiloview branding. |
 
-**Environment Setup version checks cover the setup tool**, not the installed KiloLink container or NDI Tools. Open Setup to check and update those products. A saved setup is labelled “saved setup”; it does not imply that the services were installed successfully.
+**Environment Setup separates the setup download from the installed environment.** Its setup executable is labelled **Downloaded · up to date** or **Downloaded · out of date**, independently of the **Installed fully**, **Installed partially**, or **Not installed** environment status. Cached release comparisons remain labelled as cached. A persistent setup launcher also counts as an available setup executable.
+
+The environment check reads Setup's configuration, the managed WSL registration and KiloLink container, startup watchdog, NDI Tools registration and launcher, and NDI Discovery executable/service or task. Component rows show the container's running state and web response, the installed NDI Tools version, and whether Discovery is running and owns its listening port. Hover the status or component rows for diagnostic details and the local check time. A stopped service can still be fully installed; an unreadable or stopped WSL environment is labelled **Installation not verified** when its container cannot be inspected. Pending setup continuation is reported as partial.
+
+When no environment components are detected, its card uses the simple Install view even if the setup executable has already been downloaded. **Install** or **Complete setup** can reuse that executable. Successful downloads are retained even if the elevation prompt is cancelled. Open Setup to update or repair the underlying server and NDI products; the toolkit does not claim their versions are current just because the setup download is current.
+
+Environment detection is read-only, runs only at startup or **Check for updates**, and has a 20-second limit. It does not elevate, start Windows services or scheduled tasks, or start Docker/containers. Docker inspection runs only when the managed WSL distribution is already reported running. It never calls the upstream installer to discover state.
 
 ## Version and update rules
 
@@ -75,7 +81,7 @@ On desktops too small to hold the complete UI, the window stays within the work 
 
 Each application uses its own icon. At startup and during update checks, the toolkit extracts the current icon directly from the installed executable without launching it or relying on the Windows shell icon cache. If no installed icon is available, it retrieves the project icon at the selected release tag. HTTP ETags and an on-disk cache preserve working icons when offline; embedded upstream icons are the final fallback. Repository icon paths are listed in `Catalog.cs`; if a project moves an icon to a different path, the bundled fallback remains available until that mapping is updated.
 
-Every card uses the same controls, dimensions and spacing. The dominant icon colour supplies tinted card backgrounds, panels and borders, plus matching buttons and progress bars. Text contrast is maintained by darkening the button colour; monochrome icons receive a neutral palette. A changed icon automatically regenerates the palette during the same check. Green/amber version-status colours retain their usual meanings. Selecting a different channel changes version comparisons immediately; its icon is reread during the next update check.
+Cards share consistent controls, spacing and equal column widths, with matching heights within each row. Uninstalled cards use the simpler large-icon layout. The dominant icon colour supplies tinted card backgrounds, panels and borders, plus matching buttons and progress bars. Text contrast is maintained by darkening the button colour; monochrome icons receive a neutral palette. A changed icon automatically regenerates the palette during the same check. Green/amber version-status colours retain their usual meanings. Selecting a different channel changes version comparisons immediately; its icon is reread during the next update check.
 
 The wrapper has an original toolkit icon, supplied as an editable SVG and an ICO with 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 pixel images. Cards select the largest available icon frame for scaling.
 

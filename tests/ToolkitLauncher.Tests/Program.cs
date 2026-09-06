@@ -18,6 +18,7 @@ internal static class Program
 {
     private static int count;
     private static readonly Dictionary<string, BitmapSource> LiveIcons = [];
+    private static EnvironmentSnapshot? LiveEnvironment;
     private static readonly string Temporary = Path.Combine(Path.GetTempPath(), "ToolkitTests-" + Guid.NewGuid().ToString("N"));
     [STAThread]
     private static int Main(string[] args)
@@ -29,6 +30,12 @@ internal static class Program
             GitHubCheckTestsAsync().GetAwaiter().GetResult();
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
+            EnvironmentTests();
+            if (args.Contains("--environment"))
+            {
+                LiveEnvironment = EnvironmentStatusService.ReadAsync(default).GetAwaiter().GetResult();
+                Console.WriteLine("Local environment: " + JsonSerializer.Serialize(LiveEnvironment, GitHubClient.JsonOptions));
+            }
             if (args.Contains("--ui")) ReviewUi(Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).FirstOrDefault() ?? "artifacts/ui-review"));
             Console.WriteLine($"PASS: {count} assertions.");
             return 0;
@@ -404,6 +411,64 @@ internal static class Program
         Check(quotaCalls == 1, "An exhausted successful response does not wait for a 403 before backing off");
     }
 
+    private static EnvironmentEvidence FullEnvironment() => new()
+    {
+        Configuration = true, Distro = true, DistroRunning = true, Container = true, ContainerRunning = true,
+        ContainerImage = "kiloview/klnk-pro:latest", WebResponding = true, Watchdog = true, WatchdogRunning = true,
+        NdiTools = true, NdiVersion = "6.3.2.0", Discovery = true, DiscoveryRunning = true, DiscoveryListening = true
+    };
+    private static EnvironmentEvidence EmptyEnvironment() => new()
+    {
+        Configuration = false, Distro = false, DistroRunning = false, Container = false, ContainerRunning = false,
+        Watchdog = false, WatchdogRunning = false, NdiTools = false, Discovery = false, DiscoveryRunning = false, DiscoveryListening = false
+    };
+    private static void EnvironmentTests()
+    {
+        var now = DateTimeOffset.Now;
+        var full = FullEnvironment();
+        var complete = EnvironmentSnapshot.From(full, now);
+        Check(complete.State == EnvironmentInstallationState.Full && complete.Components.Count == 3, "A complete environment reports all three installed components");
+        Check(complete.Components[0].Status.Contains("running") && complete.Components[2].Status.Contains("listening"), "Environment feedback includes running and listening state");
+        full.ContainerRunning = false; full.DiscoveryRunning = false;
+        var stopped = EnvironmentSnapshot.From(full, now);
+        Check(stopped.State == EnvironmentInstallationState.Full && stopped.Components[0].Status.Contains("stopped") && stopped.Components[2].Status.Contains("stopped"),
+            "Stopped services remain installed and their stopped state stays visible");
+        var missing = FullEnvironment(); missing.Discovery = false;
+        Check(EnvironmentSnapshot.From(missing, now).State == EnvironmentInstallationState.Partial, "A missing Discovery component makes the environment partially installed");
+        var noWatchdog = FullEnvironment(); noWatchdog.Watchdog = false;
+        Check(EnvironmentSnapshot.From(noWatchdog, now).State == EnvironmentInstallationState.Partial, "A missing startup watchdog prevents fully installed status");
+        var stoppedWsl = FullEnvironment(); stoppedWsl.DistroRunning = false; stoppedWsl.Container = null; stoppedWsl.ContainerRunning = null;
+        var unknown = EnvironmentSnapshot.From(stoppedWsl, now);
+        Check(unknown.State == EnvironmentInstallationState.Unknown && unknown.Components[0].Status.Contains("WSL stopped"),
+            "A stopped WSL distribution is not mistaken for a missing container");
+        Check(EnvironmentSnapshot.From(new(), now).State == EnvironmentInstallationState.Unknown, "Unreadable environment evidence never claims a missing installation");
+        var empty = EnvironmentSnapshot.From(EmptyEnvironment(), now);
+        Check(empty.State == EnvironmentInstallationState.NotInstalled && !empty.AnyInstalled, "No environment components means not installed");
+        var resume = FullEnvironment(); resume.RestartPending = true;
+        Check(EnvironmentSnapshot.From(resume, now).State == EnvironmentInstallationState.Partial, "A pending setup continuation is reported as partial");
+        var badPort = FullEnvironment(); badPort.DiscoveryListening = false;
+        Check(EnvironmentSnapshot.From(badPort, now).Components[2].Status.Contains("not listening"), "A running Discovery process without its listener is not reported ready");
+        var card = new AppCard(Catalog.Apps[0])
+        {
+            Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true),
+            Snapshot = new([Release("v1.3.2")], now), EnvironmentStatus = empty
+        };
+        Check(card.Status == "Downloaded · up to date" && card.EnvironmentSummary == "Environment · Not installed",
+            "A current download never implies that the environment is installed");
+        Check(card.ShowCompact && card.CanInstall && card.InstallText == "Install", "A current cached setup can install a completely missing environment");
+        card.EnvironmentStatus = EnvironmentSnapshot.From(missing, now);
+        Check(!card.ShowCompact && card.CanInstall && card.InstallText == "Complete setup", "Partial environments keep their details and can complete setup from the cached executable");
+        card.EnvironmentStatus = complete;
+        Check(!card.ShowCompact && !card.CanInstall && card.CanLaunch, "A fully installed current environment offers its existing setup launcher");
+        card.Installed = new("C:\\Downloads\\setup.exe", "1.3.1", true);
+        Check(card.Status == "Downloaded · out of date" && card.EnvironmentStatus.State == EnvironmentInstallationState.Full,
+            "An outdated setup download is independent of complete environment installation");
+        var absent = new AppCard(Catalog.Apps[1]);
+        Check(absent.ShowCompact && !absent.CanLaunch, "Uninstalled applications use the simple install card");
+        absent.Installed = new("C:\\Programs\\app.exe", "1.0.0");
+        Check(!absent.ShowCompact, "Detected applications retain their detailed cards");
+    }
+
     private static async Task LiveAsync()
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
@@ -446,6 +511,7 @@ internal static class Program
             release.Assets = [new() { Name = i switch { 0 => "Kiloview-Environment-Setup.exe", 1 => "NDI-Job-Configurator.exe", 2 => "Resolume-Arena-Configurator-v0.3.5-win-x64-Setup.exe", _ => "NDI-Configurator-PC-Agent-win-x64.zip" }, Size = i == 0 ? 1275904 : 147000000 }];
             card.Snapshot = new([release], new(2026, 9, 6, 12, 30, 0, TimeSpan.Zero));
             card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]);
+            if (card.Definition.IsEnvironment) card.EnvironmentStatus = LiveEnvironment ?? EnvironmentSnapshot.From(FullEnvironment(), DateTimeOffset.Now);
             card.Offline = false; card.Channel = i == 3 ? ReleaseChannel.Development : ReleaseChannel.Stable;
             if (LiveIcons.TryGetValue(card.Definition.Id + card.Channel, out var icon)) card.UpdateIcons(null, icon);
         }
@@ -521,7 +587,7 @@ internal static class Program
             }
             foreach (var card in cards)
             {
-                var buttons = Descendants<Button>(card).Where(b => b.IsVisible || b.Visibility == Visibility.Visible).Where(b => b.ActualWidth > 0).ToArray();
+                var buttons = Descendants<Button>(card).Where(Rendered).ToArray();
                 for (var i = 0; i < buttons.Length; i++)
                 {
                     var bounds = buttons[i].TransformToAncestor(card).TransformBounds(new Rect(buttons[i].RenderSize));
@@ -535,6 +601,10 @@ internal static class Program
                 }
             }
             Check(true, "UI " + label + ": action buttons stay within cards without overlaps");
+            var compact = cards.Single(c => ((AppCard)c.DataContext).Definition.Id == "resolume");
+            Check(Descendants<Button>(compact).Count(Rendered) == 1 && Descendants<Button>(compact).Single(Rendered).Content?.ToString() == "Install",
+                "UI " + label + ": uninstalled card has one visible Install button");
+            Check(Descendants<Image>(compact).Single(Rendered).ActualWidth == 96, "UI " + label + ": uninstalled card shows its large icon");
             foreach (var image in Descendants<Image>(root))
                 if (image.Source is not BitmapSource bitmapSource || bitmapSource.PixelWidth < 64) throw new Exception("Missing or low resolution app icon");
             var bitmap = new RenderTargetBitmap((int)(width * scale), (int)(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
@@ -553,6 +623,52 @@ internal static class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only" })
+        {
+            foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
+            var environment = window.Cards[0];
+            var evidence = FullEnvironment();
+            if (scenario == "partial-environment") evidence.Discovery = false;
+            else if (scenario == "unverified-environment") { evidence.DistroRunning = false; evidence.Container = null; evidence.ContainerRunning = null; }
+            else
+            {
+                evidence = EmptyEnvironment();
+                foreach (var card in window.Cards) card.Installed = null;
+                if (scenario == "setup-download-only") environment.Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true);
+            }
+            environment.EnvironmentStatus = EnvironmentSnapshot.From(evidence, DateTimeOffset.Now);
+            foreach (var card in window.Cards) card.Recompute();
+            foreach (var label in Descendants<TextBlock>(root)) label.GetBindingExpression(TextBlock.TextProperty)?.UpdateTarget();
+            foreach (var scale in new[] { 1d, 2d, 2.5d })
+            {
+                var size = window.MeasureStartupSize(new Size(1920, 1040), new Size(16, 40));
+                var client = new Size(size.Width - 16, size.Height - 40);
+                root.Measure(client); root.Arrange(new Rect(client)); root.UpdateLayout();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                root.UpdateLayout();
+                var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
+                Check(Math.Abs(cards[0].ActualHeight - cards[1].ActualHeight) < 1 && Math.Abs(cards[2].ActualHeight - cards[3].ActualHeight) < 1,
+                    scenario + " " + scale + ": each row has symmetrical card heights");
+                foreach (var card in cards)
+                {
+                    var view = (AppCard)card.DataContext;
+                    var buttons = Descendants<Button>(card).Where(Rendered).ToArray();
+                    if (view.ShowCompact && (buttons.Length != 1 || buttons[0].Content?.ToString() != "Install"))
+                        throw new Exception("Unexpected action on an uninstalled card.");
+                    foreach (var control in Descendants<FrameworkElement>(card).Where(c => c is TextBlock or Button or Image).Where(Rendered))
+                    {
+                        var bounds = control.TransformToAncestor(card).TransformBounds(new Rect(control.RenderSize));
+                        if (bounds.Left < -1 || bounds.Right > card.ActualWidth + 1 || bounds.Top < -1 || bounds.Bottom > card.ActualHeight + 1)
+                            throw new Exception("Environment or compact-card content outside card: " + scenario);
+                    }
+                }
+                Check(Descendants<ScrollViewer>(root).First().ScrollableHeight < 1, scenario + " " + scale + ": all cards fit at startup");
+                var bitmap = new RenderTargetBitmap((int)Math.Ceiling(client.Width * scale), (int)Math.Ceiling(client.Height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                bitmap.Render(root);
+                var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using var file = File.Create(Path.Combine(output, scenario + "-" + scale * 100 + ".png")); encoder.Save(file);
+            }
+        }
         PresentationTraceSources.DataBindingSource.Flush();
         Check(!bindingErrors.ToString().Contains("Error:"), "UI has no WPF binding errors");
         window.Close();
@@ -563,7 +679,7 @@ internal static class Program
         using var http = new HttpClient();
         foreach (var scale in new[] { 1d, 1.5, 2d, 2.5 })
         {
-            var prompt = new UpdateWindow(new SelfUpdateService(new GitHubClient(http), http, Temporary), new(Release("v1.3.0"), new ReleaseAsset()));
+            var prompt = new UpdateWindow(new SelfUpdateService(new GitHubClient(http), http, Temporary), new(Release("v1.4.0"), new ReleaseAsset()));
             var root = (FrameworkElement)prompt.Content; prompt.Content = null; root.DataContext = prompt;
             root.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, prompt.FontFamily);
             root.SetValue(System.Windows.Documents.TextElement.FontSizeProperty, prompt.FontSize);
@@ -586,6 +702,15 @@ internal static class Program
             using var file = File.Create(Path.Combine(output, $"update-prompt-{scale * 100:0}.png")); encoder.Save(file);
             prompt.Close();
         }
+    }
+    private static bool Rendered(FrameworkElement element)
+    {
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        // UI review renders a detached visual tree, where IsVisible is false even
+        // for drawn controls. Honour collapsed ancestors, not just local Visibility.
+        for (DependencyObject? parent = element; parent is not null; parent = VisualTreeHelper.GetParent(parent))
+            if (parent is UIElement visual && visual.Visibility != Visibility.Visible) return false;
+        return true;
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {

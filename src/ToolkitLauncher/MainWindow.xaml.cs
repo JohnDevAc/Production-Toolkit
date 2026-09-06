@@ -142,10 +142,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 // Snapshot preferences before moving file/registry reads off the UI thread.
                 var custom = local.Preferences.LaunchPaths.GetValueOrDefault(card.Definition.Id);
                 var setup = local.Preferences.Setups.GetValueOrDefault(card.Definition.Id);
-                var installedTask = Task.Run(() =>
+                var installedTask = Task.Run(async () =>
                 {
                     var found = InstallationService.Find(card.Definition, custom, setup);
-                    return (Found: found, Icon: found is null ? null : IconService.ReadInstalled(found.Path));
+                    var icon = found is null ? null : IconService.ReadInstalled(found.Path);
+                    var environment = card.Definition.IsEnvironment ? await EnvironmentStatusService.ReadAsync(shutdown) : null;
+                    return (Found: found, Icon: icon, Environment: environment);
                 }, shutdown);
                 try
                 {
@@ -164,6 +166,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     }
                     var installed = await installedTask;
                     card.Installed = installed.Found;
+                    card.EnvironmentStatus = installed.Environment;
+                    if (installed.Environment is { } environment)
+                        local.Log("Environment: " + environment.Status + ". " + string.Join("; ", environment.Components.Select(component => component.Name + ": " + component.Status)));
                     // The installed binary is authoritative. The release icon is a cached
                     // fallback for applications that have not been installed yet.
                     var remote = await icons.ReadRemoteAsync(card.Definition, card.SelectedRelease?.Tag ?? "main", shutdown);
@@ -223,7 +228,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task PrepareAsync(AppCard card)
     {
-        if (card.Busy || card.Asset is not { } asset || card.SelectedRelease is not { } release) return;
+        if (!card.CanInstall) return;
+        var asset = card.Asset;
+        var release = card.SelectedRelease;
+        var existingSetup = card.NeedsEnvironmentSetup && card.Installed is not null && (asset is null || card.State == UpdateState.Current);
+        if (!existingSetup && (asset is null || release is null)) return;
         if (Cards.Any(c => c.InstallerRunning))
         {
             Report(card, "Finish the open installer before starting another installation."); return;
@@ -233,26 +242,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         card.Cancellation = cancellation;
         try
         {
-            local.Log($"Install: {card.Name} {release.Tag} ({asset.Name})");
-            var progress = new Progress<TransferProgress>(p =>
+            var setupPath = card.Installed?.Path;
+            if (existingSetup && card.Installed!.IsSavedSetup)
             {
-                if (!card.Busy || card.InstallerRunning) return;
-                card.Activity = p.Message; card.Progress = p.Percent;
-            });
-            var package = await packages.PrepareAsync(card.Definition, asset, progress, cancellation.Token);
-            cancellation.Token.ThrowIfCancellationRequested();
+                var saved = local.Preferences.Setups.GetValueOrDefault(card.Definition.Id);
+                if (saved is null || !string.Equals(saved.Path, setupPath, StringComparison.OrdinalIgnoreCase) ||
+                    !await PackageService.VerifyAsync(setupPath!, new ReleaseAsset { Size = new FileInfo(setupPath!).Length, Digest = saved.Digest }, cancellation.Token))
+                    throw new IOException("The saved setup file has changed. Select Check for updates and download it again.");
+            }
+            if (!existingSetup)
+            {
+                local.Log($"Install: {card.Name} {release!.Tag} ({asset!.Name})");
+                var progress = new Progress<TransferProgress>(p =>
+                {
+                    if (!card.Busy || card.InstallerRunning) return;
+                    card.Activity = p.Message; card.Progress = p.Percent;
+                });
+                var package = await packages.PrepareAsync(card.Definition, asset, progress, cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                setupPath = package.SetupPath;
+                // A verified download exists even if elevation or the setup wizard is cancelled.
+                if (card.Definition.IsEnvironment)
+                {
+                    local.Preferences.Setups[card.Definition.Id] = new(package.SetupPath, release.Tag, asset.Digest!);
+                    local.Save();
+                }
+            }
             card.Progress = 100;
             // Several downloads may finish together; serialize external installation wizards.
             if (Cards.Any(c => c != card && c.InstallerRunning))
             { Report(card, "Download ready. Finish the other installer, then select " + card.InstallText + "."); return; }
             card.InstallerRunning = true;
             card.Activity = "Installer open · complete the steps in its window.";
-            using var process = InstallationService.StartSetup(package.SetupPath);
-            if (card.Definition.IsEnvironment)
-            {
-                local.Preferences.Setups[card.Definition.Id] = new(package.SetupPath, release.Tag, asset.Digest!);
-                local.Save();
-            }
+            using var process = InstallationService.StartSetup(setupPath!);
             await process.WaitForExitAsync(shutdown);
             card.Activity = "";
             local.Log($"{card.Name}: installer exited with code {process.ExitCode}.");
