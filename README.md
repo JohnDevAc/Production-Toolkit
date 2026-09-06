@@ -6,7 +6,7 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download **Production-Toolkit-1.3.0-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.1-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
@@ -28,7 +28,7 @@ Uninstalled applications show a large app icon, their name, a Stable / Developme
 - **Launch** for installed applications; **Open setup** for Environment Setup.
 - Matching layouts with colours derived from each application's icon.
 
-The app reads installed versions, icons and release information only on startup and during **Check for updates**. Completing an installation does not trigger another check; click **Check for updates** or reopen the toolkit to refresh the cards afterward. There is no timer, background polling or recheck when focus returns, a channel changes or an app launches. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
+The app reads installed versions, icons and release information on startup and during **Check for updates**. When an installer or **Open setup** window closes, all cards automatically refresh their local installed versions, icons, actions and environment status. This also detects components installed by another app's setup and changes made during repair, uninstall or incomplete setup. It uses the saved release information without another GitHub check, so API cooldowns do not block the refresh. There is no timer or background polling. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
 
 ## Supported applications
 
