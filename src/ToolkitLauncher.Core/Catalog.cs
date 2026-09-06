@@ -17,6 +17,7 @@ public sealed record AppDefinition(string Id, string Name, string Subtitle, stri
     };
     public bool IsEnvironment => Id == "environment";
     public bool IsJob => Id == "job";
+    public bool IsPcAgent => Id == "pc-agent";
 }
 
 public static class Catalog

@@ -237,6 +237,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await RefreshInstalledAsync();
             if (process.ExitCode is 3010 or 1641) Report(card, "Installer reports that Windows must restart to finish applying changes.");
             else if (process.ExitCode != 0) Report(card, $"Installer exited with code {process.ExitCode}. Check its result before retrying.");
+            else if (card.NeedsPcAgentSetup) Report(card, "PC Agent setup is still incomplete. " + card.SetupNotice);
         }
         finally { card.InstallerRunning = false; }
     }
@@ -277,10 +278,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task PrepareAsync(AppCard card)
     {
+        if (!card.CanChoose) return;
+        if (!await RefreshPcAgentAsync(card)) return;
         if (!card.CanInstall) return;
         var asset = card.Asset;
         var release = card.SelectedRelease;
-        var existingSetup = card.NeedsEnvironmentSetup && card.Installed is not null && (asset is null || card.State == UpdateState.Current);
+        var existingSetup = card.ExistingSetupPath is not null;
         if (!existingSetup && (asset is null || release is null)) return;
         if (Cards.Any(c => c.InstallerRunning))
         {
@@ -291,7 +294,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         card.Cancellation = cancellation;
         try
         {
-            var setupPath = card.Installed?.Path;
+            var setupPath = card.ExistingSetupPath;
             if (existingSetup && card.Installed!.IsSavedSetup)
             {
                 var saved = local.Preferences.Setups.GetValueOrDefault(card.Definition.Id);
@@ -332,12 +335,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private static string Friendly(Exception e) => e is TaskCanceledException ? "The connection timed out. Try again when your connection is available." : e.Message;
     private void Report(AppCard card, string message) { card.Activity = message; local.Log(card.Name + ": " + message); }
     private void CancelClick(object sender, RoutedEventArgs e) => Card(sender).Cancellation?.Cancel();
-    private async void LaunchClick(object sender, RoutedEventArgs e)
+    private async Task<bool> RefreshPcAgentAsync(AppCard card)
     {
-        var card = Card(sender);
+        if (!card.Definition.IsPcAgent) return true;
+        var custom = local.Preferences.LaunchPaths.GetValueOrDefault(card.Definition.Id);
+        card.Checking = true;
         try
         {
+            card.Installed = await Task.Run(() => InstallationService.Find(card.Definition, custom, null), shutdown);
+            return true;
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { return false; }
+        catch (Exception error) { Report(card, "Could not check PC Agent setup. " + Friendly(error)); return false; }
+        finally { card.Checking = false; }
+    }
+    private async void LaunchClick(object sender, RoutedEventArgs e) => await LaunchAsync(Card(sender));
+    private async Task LaunchAsync(AppCard card)
+    {
+        try
+        {
+            if (!card.CanChoose) return;
+            if (!await RefreshPcAgentAsync(card)) return;
             if (card.Installed is null) return;
+            if (card.NeedsPcAgentSetup) { await PrepareAsync(card); return; }
             if (card.Definition.IsEnvironment)
             {
                 if (Cards.Any(c => c.InstallerRunning)) { Report(card, "Finish the open installer before starting another installation."); return; }

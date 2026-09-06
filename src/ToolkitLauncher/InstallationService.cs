@@ -6,7 +6,10 @@ using ToolkitLauncher.Core;
 
 namespace ToolkitLauncher;
 
-public sealed record Installation(string Path, string? Version, bool IsSavedSetup = false);
+public sealed record Installation(string Path, string? Version, bool IsSavedSetup = false)
+{
+    public PcAgentReadiness? PcAgent { get; init; }
+}
 
 public sealed class InstallationService(LocalState state)
 {
@@ -18,10 +21,10 @@ public sealed class InstallationService(LocalState state)
     // Inputs are captured on the UI thread before an asynchronous check starts.
     public static Installation? Find(AppDefinition app, string? custom, SetupRecord? setup)
     {
-        if (File.Exists(custom)) return new(custom, ReadVersion(custom));
+        if (File.Exists(custom)) return ReadInstallation(app, custom);
         var paths = RegistryPaths(app).Concat(app.KnownPaths.Select(Environment.ExpandEnvironmentVariables));
         var installedPath = paths.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
-        Installation? installed = installedPath is null ? null : new(installedPath, ReadVersion(installedPath));
+        Installation? installed = installedPath is null ? null : ReadInstallation(app, installedPath);
         if (app.IsEnvironment && setup is not null && File.Exists(setup.Path))
         {
             try
@@ -41,6 +44,12 @@ public sealed class InstallationService(LocalState state)
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         return installed;
+    }
+
+    private static Installation ReadInstallation(AppDefinition app, string path)
+    {
+        var installation = new Installation(path, ReadVersion(path));
+        return app.IsPcAgent ? installation with { PcAgent = PcAgentReadiness.Read(app, installation) } : installation;
     }
 
     public static string? ReadVersion(string path)

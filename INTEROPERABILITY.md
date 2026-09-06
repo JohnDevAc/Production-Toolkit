@@ -1,5 +1,11 @@
 # Interoperability and setup readiness
 
+## PC Agent setup recovery
+
+The PC Agent card now checks per-user configuration independently of executable version. Missing, unreadable or invalid schema-1 identity/network/membership state requires **Complete setup**. It follows the agent's current/legacy state precedence and does not treat a disconnected adapter as missing setup. A matching installed Agent/Setup pair can complete configuration offline; missing or mismatched Setup requires the complete release package. Recovery retains newer installed versions. Local checks run again before actions and after setup exits, including unsuccessful or incomplete setup. Toolkit never writes Agent configuration or accepts its licence; the independently installed Setup owns those operations. The server process contract and remote consent flow are unchanged.
+
+Validation (6 September 2026): 312 Toolkit regression/UI assertions pass, including a harmless local Setup fixture exercising incomplete exit, successful configuration, offline reuse and stale Launch recovery. The recovery card was visually checked at 100% scale and layout assertions pass at 100%, 200% and 250%. The server's 22 regression and 8 frontend checks, installer package checks and both companion validation projects also pass. All configuration fixtures use isolated paths; validation did not install software or change live NDI settings. The 1.3.3 self-contained application, ZIP and Windows installer build successfully. Publication and local installation are separate from build validation.
+
 ## Additional QA corrections — 6 September 2026
 
 Malformed optional Agent metadata no longer discards otherwise valid Server evidence. It still prevents Client/combined deployments from reporting complete. Unsupported or unreadable component receipts produce an explicit unknown deployment status instead of being interpreted as a legacy Client installation.

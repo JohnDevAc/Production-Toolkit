@@ -20,10 +20,18 @@ internal static class Program
     private static readonly Dictionary<string, BitmapSource> LiveIcons = [];
     private static EnvironmentSnapshot? LiveEnvironment;
     private static readonly string Temporary = Path.Combine(Path.GetTempPath(), "ToolkitTests-" + Guid.NewGuid().ToString("N"));
+    private static readonly string AgentStatePath = Path.Combine(Temporary, "agent-state.json");
+    private static string ValidAgentState => JsonSerializer.Serialize(new
+    {
+        schemaVersion = 1, endpointId = Guid.NewGuid(), adapterId = Guid.NewGuid(),
+        address = "192.0.2.20", prefixLength = 24, memberships = Array.Empty<object>()
+    });
     [STAThread]
     private static int Main(string[] args)
     {
         Directory.CreateDirectory(Temporary);
+        var originalAgentState = Environment.GetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH");
+        Environment.SetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH", AgentStatePath);
         try
         {
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
@@ -31,6 +39,7 @@ internal static class Program
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
             EnvironmentTests();
+            PcAgentSetupTests();
             if (args.Contains("--environment"))
             {
                 LiveEnvironment = EnvironmentStatusService.ReadAsync(default).GetAwaiter().GetResult();
@@ -41,7 +50,11 @@ internal static class Program
             return 0;
         }
         catch (Exception e) { Console.Error.WriteLine(e); return 1; }
-        finally { Directory.Delete(Temporary, true); }
+        finally
+        {
+            Environment.SetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH", originalAgentState);
+            Directory.Delete(Temporary, true);
+        }
     }
     private static void Check(bool value, string label)
     { if (!value) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS " + label); }
@@ -529,6 +542,57 @@ internal static class Program
         Check(!absent.ShowCompact, "Detected applications retain their detailed cards");
     }
 
+    private static void PcAgentSetupTests()
+    {
+        var folder = Path.Combine(Temporary, "agent-recovery"); Directory.CreateDirectory(folder);
+        var agent = Path.Combine(folder, "NDI Configurator PC Agent.exe");
+        var setup = Path.Combine(folder, "NDI Configurator PC Agent Setup.exe");
+        File.Copy(typeof(MainWindow).Assembly.Location, agent);
+        File.Copy(agent, setup);
+        var definition = Catalog.Apps[3] with { KnownPaths = [agent], RegistryNames = [] };
+        var installation = InstallationService.Find(definition, null, null)!;
+        var release = Release("v" + installation.Version);
+        release.Assets = [new() { Name = "NDI-Configurator-PC-Agent-win-x64.zip", Size = 100 }];
+        var card = new AppCard(definition) { Installed = installation, Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true };
+        Check(card.State == UpdateState.Current && card.NeedsPcAgentSetup && card.Status == "Setup incomplete",
+            "Current agent binaries do not imply completed setup");
+        Check(card.CanInstall && !card.CanLaunch && card.InstallText == "Complete setup" && card.ExistingSetupPath == setup,
+            "Unconfigured agent offers matching local Setup offline instead of a silent launch");
+        Check(!File.Exists(AgentStatePath), "Readiness detection does not create agent state");
+        card.Snapshot = null;
+        Check(card.CanInstall && card.ExistingSetupPath == setup, "Local agent setup works without release metadata");
+        card.Snapshot = new([Release("v0.1.0")], DateTimeOffset.UtcNow);
+        Check(card.CanInstall && card.ExistingSetupPath == setup, "Recovery retains newer installed agent binaries");
+        card.Snapshot = new([release], DateTimeOffset.UtcNow);
+        File.WriteAllText(AgentStatePath, ValidAgentState);
+        card.Installed = InstallationService.Find(definition, null, null);
+        Check(card.CanLaunch && !card.CanInstall && !card.NeedsPcAgentSetup,
+            "A valid configured agent becomes launchable without a live network probe");
+        var valid = File.ReadAllText(AgentStatePath);
+        foreach (var invalid in new[] { "{", "null", valid.Replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
+            valid.Replace("192.0.2.20", "127.0.0.1"), valid.Replace("\"memberships\":[]", "\"memberships\":null"),
+            valid.Replace("\"memberships\":[]", "\"memberships\":[{\"jobName\":\"\"}]") })
+        {
+            File.WriteAllText(AgentStatePath, invalid);
+            card.Installed = InstallationService.Find(definition, agent, null);
+            Check(card.NeedsPcAgentSetup && card.CanInstall && !card.CanLaunch, "Malformed or unsupported agent state offers repair");
+        }
+        var legacy = Path.Combine(folder, "legacy-state.json"); File.WriteAllText(legacy, valid);
+        Check(!PcAgentReadiness.Read(definition, installation, AgentStatePath, legacy).Configured,
+            "Invalid current state never falls back to stale legacy configuration");
+        File.Delete(AgentStatePath);
+        Check(PcAgentReadiness.Read(definition, installation, AgentStatePath, legacy).Configured,
+            "Legacy configuration remains supported when current state is absent");
+        File.Delete(setup);
+        card.Installed = InstallationService.Find(definition, null, null);
+        Check(card.CanInstall && card.ExistingSetupPath is null && !card.CanLaunch,
+            "A missing setup utility permits restoring the complete current release");
+        var older = Release("v0.1.0"); older.Assets = release.Assets; card.Snapshot = new([older], DateTimeOffset.UtcNow);
+        Check(!card.CanInstall && card.SetupNotice.Contains("at least as new"), "Incomplete newer packages are not downgraded by recovery");
+        File.WriteAllText(setup, "invalid executable");
+        Check(PcAgentReadiness.Read(definition, installation).SetupPath is null, "Invalid local Setup cannot be reused");
+    }
+
     private static async Task LiveAsync()
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
@@ -559,6 +623,7 @@ internal static class Program
         Directory.CreateDirectory(output);
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
         InstallerRefreshTests();
+        PcAgentSetupFlowTests();
         ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
@@ -684,7 +749,7 @@ internal static class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
-        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host" })
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "incomplete-agent" })
         {
             foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
             var environment = window.Cards[0];
@@ -693,6 +758,16 @@ internal static class Program
             else if (scenario == "combined-host") { evidence.Roles = ["server", "client"]; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
             else if (scenario == "client-only") { evidence = EmptyEnvironment(); evidence.Roles = ["client"]; evidence.NdiTools = true; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
             else if (scenario == "unverified-environment") { evidence.DistroRunning = false; evidence.Container = null; evidence.ContainerRunning = null; }
+            else if (scenario == "incomplete-agent")
+            {
+                foreach (var card in window.Cards) card.Installed = new("C:\\Example\\app.exe", "1.0.0");
+                window.Cards[3].Installed = new("C:\\Example\\agent.exe", "0.7.1")
+                {
+                    PcAgent = new(false, "C:\\Example\\setup.exe", "Choose the production adapter to finish setup for this Windows account.")
+                };
+                window.Cards[3].Snapshot = new([Release("v0.7.1")], DateTimeOffset.UtcNow);
+                window.Cards[3].Channel = ReleaseChannel.Stable;
+            }
             else
             {
                 evidence = EmptyEnvironment();
@@ -710,6 +785,14 @@ internal static class Program
                 Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
                 root.UpdateLayout();
                 var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
+                if (scenario == "incomplete-agent")
+                {
+                    var actions = Descendants<Button>(cards[3]).Where(Rendered).ToArray();
+                    Check(actions.Any(b => b.Content?.ToString() == "Complete setup" && b.IsEnabled)
+                        && actions.Any(b => b.Content?.ToString() == "Launch" && !b.IsEnabled)
+                        && Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == "Setup incomplete"),
+                        "Incomplete agent renders an enabled recovery action and a disabled Launch button");
+                }
                 Check(Math.Abs(cards[0].ActualHeight - cards[1].ActualHeight) < 1 && Math.Abs(cards[2].ActualHeight - cards[3].ActualHeight) < 1,
                     scenario + " " + scale + ": each row has symmetrical card heights");
                 foreach (var card in cards)
@@ -741,8 +824,10 @@ internal static class Program
     {
         var window = new MainWindow(Path.Combine(Temporary, "installer-refresh"), true);
         window.Cards.Clear();
-        var paths = new[] { Path.Combine(Temporary, "installed-job.exe"), Path.Combine(Temporary, "installed-agent.exe") };
-        for (var i = 0; i < paths.Length; i++)
+        var paths = new[] { Path.Combine(Temporary, "installed-job.exe"), Path.Combine(Temporary, "installed-agent.exe"),
+            Path.Combine(Temporary, "NDI Configurator PC Agent Setup.exe") };
+        File.WriteAllText(AgentStatePath, ValidAgentState);
+        for (var i = 0; i < 2; i++)
         {
             var definition = Catalog.Apps[i == 0 ? 1 : 3] with { KnownPaths = [paths[i]], RegistryNames = [] };
             var release = Release("v" + InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location));
@@ -785,6 +870,60 @@ internal static class Program
                 "Refresh retains the installer failure and clears its running state");
         }
         finally { window.Close(); }
+    }
+
+    private static void PcAgentSetupFlowTests()
+    {
+        var folder = Path.Combine(Temporary, "agent-setup-flow"); Directory.CreateDirectory(folder);
+        var stateBefore = File.Exists(AgentStatePath) ? File.ReadAllText(AgentStatePath) : null;
+        File.Delete(AgentStatePath);
+        var marker = Path.Combine(folder, "complete");
+        var setup = Path.Combine(folder, "NDI Configurator PC Agent Setup.exe");
+        var agent = Path.Combine(folder, "NDI Configurator PC Agent.exe");
+        var source = Path.Combine(folder, "fixture.cs");
+        File.WriteAllText(source, "using System.IO; [assembly: System.Reflection.AssemblyFileVersion(\"1.0.0.0\")] "
+            + "[assembly: System.Reflection.AssemblyInformationalVersion(\"1.0.0\")] class Fixture { static int Main() { if (File.Exists("
+            + JsonSerializer.Serialize(marker) + ")) File.WriteAllText(" + JsonSerializer.Serialize(AgentStatePath) + ", "
+            + JsonSerializer.Serialize(ValidAgentState) + "); return 0; } }");
+        var compiler = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"Microsoft.NET\Framework64\v4.0.30319\csc.exe"))
+        { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "/nologo", "/target:winexe", "/out:" + setup, source }) compiler.ArgumentList.Add(argument);
+        using (var build = Process.Start(compiler)!) { build.WaitForExit(); Check(build.ExitCode == 0, "Harmless PC Agent Setup fixture compiles"); }
+        File.Copy(setup, agent);
+        var definition = Catalog.Apps[3] with { KnownPaths = [agent], RegistryNames = [] };
+        var dataRoot = Path.Combine(folder, "toolkit-state");
+        var window = new MainWindow(dataRoot, true); window.Cards.Clear();
+        var release = Release("v1.0.0");
+        release.Assets = [new() { Name = "NDI-Configurator-PC-Agent-win-x64.zip", DownloadUrl = "https://invalid.example/must-not-download", Size = 100 }];
+        var card = new AppCard(definition) { Installed = InstallationService.Find(definition, null, null),
+            Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true };
+        window.Cards.Add(card);
+        void Invoke(string method)
+        {
+            var task = (Task)typeof(MainWindow).GetMethod(method, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [card])!;
+            var frame = new DispatcherFrame();
+            task.ContinueWith(_ => window.Dispatcher.BeginInvoke(() => frame.Continue = false));
+            Dispatcher.PushFrame(frame); task.GetAwaiter().GetResult();
+        }
+        try
+        {
+            Invoke("PrepareAsync");
+            Check(card.NeedsPcAgentSetup && card.CanInstall && !card.CanLaunch && card.Activity.Contains("still incomplete"),
+                "Closing Setup without configuration keeps recovery available despite exit code zero");
+            File.WriteAllText(marker, "complete");
+            Invoke("PrepareAsync");
+            Check(card.CanLaunch && !card.CanInstall && !card.NeedsPcAgentSetup && card.Activity == "",
+                "Complete setup runs the local utility and refreshes the agent into a launchable state");
+            Check(!Directory.Exists(Path.Combine(dataRoot, "Downloads")), "Local PC Agent recovery does not download a package");
+            File.Delete(AgentStatePath);
+            Invoke("LaunchAsync");
+            Check(File.Exists(AgentStatePath) && card.CanLaunch, "A stale Launch action rechecks missing configuration and opens Setup");
+        }
+        finally
+        {
+            window.Close();
+            if (stateBefore is null) File.Delete(AgentStatePath); else File.WriteAllText(AgentStatePath, stateBefore);
+        }
     }
 
     private static void ReviewUpdatePrompt(string output)

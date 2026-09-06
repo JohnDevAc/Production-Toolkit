@@ -38,7 +38,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public Installation? Installed { get; set; }
     public EnvironmentSnapshot? EnvironmentStatus { get; set; }
     public bool ShowEnvironment => Definition.IsEnvironment;
-    public bool ShowChannelNote => !Definition.IsEnvironment;
+    public bool ShowChannelNote => !Definition.IsEnvironment && !NeedsPcAgentSetup;
     public string EnvironmentSummary => "Environment · " + (EnvironmentStatus?.Status ?? "Not checked");
     public string EnvironmentColour => EnvironmentStatus?.Colour ?? "#617082";
     public string EnvironmentDetail => EnvironmentStatus?.Detail ?? "Local components are checked on startup, after setup closes or Check for updates.";
@@ -46,6 +46,13 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public bool ShowCompact => Definition.IsEnvironment ? EnvironmentStatus?.State == EnvironmentInstallationState.NotInstalled : Installed is null;
     public bool ShowDetails => !ShowCompact;
     public bool NeedsEnvironmentSetup => Definition.IsEnvironment && EnvironmentStatus?.State is EnvironmentInstallationState.NotInstalled or EnvironmentInstallationState.Partial;
+    public bool NeedsPcAgentSetup => Definition.IsPcAgent && Installed?.PcAgent?.NeedsSetup == true;
+    public bool NeedsSetup => NeedsEnvironmentSetup || NeedsPcAgentSetup;
+    public string SetupNotice => NeedsPcAgentSetup ? Installed!.PcAgent!.Detail +
+        (State == UpdateState.NewerInstalled && ExistingSetupPath is null ? " Choose a release at least as new as the installed agent." : "") : "";
+    public string? ExistingSetupPath => NeedsPcAgentSetup && (Asset is null || State is UpdateState.Current or UpdateState.NewerInstalled)
+        ? Installed?.PcAgent?.SetupPath
+        : NeedsEnvironmentSetup && Installed is not null && (Asset is null || State == UpdateState.Current) ? Installed.Path : null;
     public string CompactDownloadText => Definition.IsEnvironment && Installed is not null ? Status + " · " + InstalledText : "";
     public Release? SelectedRelease => Snapshot is null ? null : ReleaseSelection.Latest(Snapshot.Releases, Channel);
     public ReleaseAsset? Asset => SelectedRelease is { } release ? ReleaseSelection.Installer(Definition, release) : null;
@@ -59,11 +66,12 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     private bool checking;
     public bool Checking { get => checking; set { checking = value; Recompute(); } }
     public bool CanChoose => !Busy && !Checking;
-    public bool CanInstall => CanChoose && (Asset is not null && (State != UpdateState.Current || NeedsEnvironmentSetup) || NeedsEnvironmentSetup && Installed is not null);
-    public bool CanLaunch => CanChoose && Installed is not null;
+    public bool CanInstall => CanChoose && (ExistingSetupPath is not null || Asset is not null && (State != UpdateState.Current || NeedsSetup)
+        && !(NeedsPcAgentSetup && State == UpdateState.NewerInstalled));
+    public bool CanLaunch => CanChoose && Installed is not null && !NeedsPcAgentSetup;
     public bool CanCancel => Busy && !InstallerRunning;
-    public bool ShowPrimary => State != UpdateState.Current || Installed is null;
-    public string InstallText => ShowCompact ? "Install" : NeedsEnvironmentSetup ? "Complete setup" : State switch
+    public bool ShowPrimary => State != UpdateState.Current || Installed is null || NeedsSetup;
+    public string InstallText => ShowCompact ? "Install" : NeedsSetup ? "Complete setup" : State switch
     {
         UpdateState.UpdateAvailable => "Update", UpdateState.SwitchChannel => "Switch version",
         UpdateState.NewerInstalled => "Install older", UpdateState.Current => Offline ? "Current in cache" : "Up to date",
@@ -76,7 +84,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public string LatestText => Snapshot is null ? "Not checked" : SelectedRelease is null ? "No release available" : SelectedRelease.Tag +
         (Asset is null ? " · no supported installer" : $" · {Asset.Size / 1048576d:0.#} MB");
     public string VersionToolTip => Installed is null ? "Checks registered installations and the application's standard installation folders." : Installed.Version + "\n" + Installed.Path;
-    public string Status => Definition.IsEnvironment ? DownloadStatus : Snapshot is null ? (Installed is null ? "Not installed" : "Not checked") : State switch
+    public string Status => NeedsPcAgentSetup ? "Setup incomplete" : Definition.IsEnvironment ? DownloadStatus : Snapshot is null ? (Installed is null ? "Not installed" : "Not checked") : State switch
     {
         UpdateState.Current => Offline ? "Current in cache" : "Up to date",
         UpdateState.UpdateAvailable => Offline ? "Update in cache" : "Update available",
@@ -92,7 +100,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
         UpdateState.NewerInstalled => "Downloaded · newer version",
         _ => "Downloaded · version not verified"
     };
-    public string StatusColor => State switch
+    public string StatusColor => NeedsPcAgentSetup ? "#94620F" : State switch
     {
         UpdateState.Current => "#24735B", UpdateState.UpdateAvailable => "#94620F",
         UpdateState.SwitchChannel => "#5D59A2", _ => "#617082"
@@ -102,7 +110,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
         : Channel == ReleaseChannel.Development
         ? "Development builds may replace your stable installation."
         : "Stable releases are recommended for production.";
-    public string DetailNote => Definition.IsEnvironment ? "Download status covers the setup executable. Environment status checks the installed components. Open setup to install or repair them." :
+    public string DetailNote => NeedsPcAgentSetup ? SetupNotice : Definition.IsEnvironment ? "Download status covers the setup executable. Environment status checks the installed components. Open setup to install or repair them." :
         State == UpdateState.NewerInstalled ? "The selected release is older. Installing it will downgrade this application." :
         State == UpdateState.Unknown && Installed is not null ? "The installed version cannot be compared reliably." :
         Definition.PackageKind == PackageKind.ZipWithSetup ? "The complete ZIP is verified and unpacked before Setup opens." :
