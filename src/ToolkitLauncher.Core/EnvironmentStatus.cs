@@ -7,6 +7,8 @@ public sealed class EnvironmentEvidence
     public string[]? Roles { get; set; }
     public bool? PcAgent { get; set; }
     public bool? PcAgentConfigured { get; set; }
+    public PcAgentConfiguration? PcAgentConfiguration { get; set; }
+    public bool? PcAgentNetworkAvailable { get; set; }
     public bool? Configuration { get; set; }
     public bool? Distro { get; set; }
     public bool? DistroRunning { get; set; }
@@ -43,6 +45,11 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
 
     public static EnvironmentSnapshot From(EnvironmentEvidence evidence, DateTimeOffset checkedAt)
     {
+        if (evidence.PcAgentConfiguration is not null) evidence.PcAgentConfigured = evidence.PcAgentConfiguration.IsValid;
+        var agentNetwork = evidence.PcAgentConfigured != true ? "Local production adapter configuration is required."
+            : evidence.PcAgentNetworkAvailable == true ? "Production adapter and saved address are available."
+            : evidence.PcAgentNetworkAvailable == false ? "Production adapter or saved address is unavailable. Connect the adapter or refresh PC Agent."
+            : "Production adapter availability has not been verified.";
         var client = evidence.Roles?.Contains("client") == true
             || evidence.Roles is null && evidence.Configuration == false && evidence.Distro == false
                 && evidence.Watchdog == false && evidence.PcAgent == true;
@@ -67,7 +74,7 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
             return new(clientState,
             [
                 new("NDI Tools", evidence.NdiTools == true ? "Installed" : evidence.NdiTools == false ? "Not installed" : "Not verified", evidence.NdiVersion ?? ""),
-                new("PC Agent", evidence.PcAgent != true ? "Not installed / not verified" : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required", "Local production adapter configuration is required."),
+                new("PC Agent", evidence.PcAgent != true ? "Not installed / not verified" : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required", agentNetwork),
                 new("Server components", "Not required", "Client deployment uses remote Job Configurator, KiloLink and Discovery as configured.")
             ], checkedAt, "Client deployment. " + evidence.Note, evidence.NdiTools == true || evidence.PcAgent == true);
         }
@@ -108,7 +115,7 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
             new("NDI Discovery", discovery, "Checks the installed Discovery executable, service or startup task, and its ownership of the listening port."),
             .. client ? new[] { new EnvironmentComponent("PC Agent", evidence.PcAgent != true ? "Not installed / not verified"
                 : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required",
-                "Required by the selected Client role on this combined host.") } : Array.Empty<EnvironmentComponent>()
+                "Required by the selected Client role on this combined host. " + agentNetwork) } : Array.Empty<EnvironmentComponent>()
         ], checkedAt, string.Join("\n", notes), any);
     }
 }

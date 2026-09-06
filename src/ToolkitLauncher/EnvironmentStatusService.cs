@@ -24,6 +24,17 @@ public static class EnvironmentStatusService
                 Convert.ToBase64String(Encoding.Unicode.GetBytes(script))], timeout.Token);
             if (local.Code != 0) throw new IOException("Windows environment details could not be read.");
             evidence = JsonSerializer.Deserialize<EnvironmentEvidence>(local.Output, GitHubClient.JsonOptions) ?? throw new InvalidDataException("Environment evidence is missing.");
+            if (evidence.PcAgentConfiguration is { IsValid: true } agent)
+            {
+                try
+                {
+                    evidence.PcAgentNetworkAvailable = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                        .Any(n => n.Id.Equals(agent.AdapterId, StringComparison.OrdinalIgnoreCase)
+                            && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+                            && n.GetIPProperties().UnicastAddresses.Any(a => a.Address.ToString() == agent.Address && a.PrefixLength == agent.PrefixLength));
+                }
+                catch (System.Net.NetworkInformation.NetworkInformationException) { evidence.PcAgentNetworkAvailable = null; }
+            }
             using var details = JsonDocument.Parse(local.Output);
             var distro = details.RootElement.GetProperty("DistroName").GetString()!;
             var webPort = details.RootElement.GetProperty("WebPort").GetInt32();

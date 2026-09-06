@@ -6,7 +6,7 @@ $result = [ordered]@{
     Watchdog = $null; WatchdogRunning = $null; NdiTools = $null; NdiVersion = $null
     Discovery = $null; DiscoveryRunning = $null; DiscoveryListening = $null
     RestartPending = $false; WebPort = 0; NdiPort = 5959; Note = ''
-    Roles = $null; PcAgent = $null; PcAgentConfigured = $null
+    Roles = $null; PcAgent = $null; PcAgentConfigured = $null; PcAgentConfiguration = $null
 }
 $stateRoot = Join-Path $env:ProgramData 'KiloLink'
 $configPath = Join-Path $stateRoot 'installer-config.json'
@@ -23,8 +23,10 @@ try {
     $result.PcAgentConfigured = $false
     if (Test-Path -LiteralPath $agentState) {
         $agentConfig = Get-Content -LiteralPath $agentState -Raw | ConvertFrom-Json
-        $endpointId = [guid]::Empty
-        $result.PcAgentConfigured = [guid]::TryParse([string]$agentConfig.endpointId, [ref]$endpointId) -and -not [string]::IsNullOrWhiteSpace($agentConfig.adapterId)
+        $result.PcAgentConfiguration = [ordered]@{
+            SchemaVersion = $agentConfig.schemaVersion; EndpointId = $agentConfig.endpointId
+            AdapterId = $agentConfig.adapterId; Address = $agentConfig.address; PrefixLength = $agentConfig.prefixLength
+        }
     }
 } catch { $notes.Add('The selected component receipt or PC Agent configuration could not be verified.') }
 try {

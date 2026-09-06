@@ -439,6 +439,21 @@ internal static class Program
     };
     private static void EnvironmentTests()
     {
+        var validAgent = new PcAgentConfiguration(1, Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "192.0.2.20", 24);
+        Check(validAgent.IsValid, "Complete PC Agent state is valid");
+        foreach (var invalid in new[] { validAgent with { SchemaVersion = 2 }, validAgent with { EndpointId = Guid.Empty.ToString() },
+            validAgent with { AdapterId = "" }, validAgent with { Address = null }, validAgent with { Address = "127.0.0.1" },
+            validAgent with { Address = "169.254.1.1" }, validAgent with { Address = "224.0.0.1" }, validAgent with { Address = "192.0.2.0" },
+            validAgent with { Address = "192.0.2.255" }, validAgent with { PrefixLength = 0 }, validAgent with { PrefixLength = 33 } })
+            Check(!invalid.IsValid, "Malformed PC Agent state cannot report configured");
+        var disconnected = new EnvironmentEvidence { Roles = ["client"], NdiTools = true, PcAgent = true,
+            PcAgentConfiguration = validAgent, PcAgentNetworkAvailable = false };
+        var disconnectedSnapshot = EnvironmentSnapshot.From(disconnected, DateTimeOffset.Now);
+        Check(disconnectedSnapshot.State == EnvironmentInstallationState.Full && disconnectedSnapshot.Components.Any(c => c.Detail.Contains("unavailable")),
+            "Disconnected production network does not imply missing installation components");
+        disconnected.PcAgentConfiguration = validAgent with { EndpointId = Guid.Empty.ToString() };
+        Check(EnvironmentSnapshot.From(disconnected, DateTimeOffset.Now).State == EnvironmentInstallationState.Partial,
+            "Malformed configuration blocks client completeness");
         var clientEvidence = new EnvironmentEvidence { Roles = ["client"], NdiTools = true, PcAgent = true, PcAgentConfigured = true,
             Configuration = false, Distro = false, Watchdog = false, Discovery = false };
         var clientSnapshot = EnvironmentSnapshot.From(clientEvidence, DateTimeOffset.Now);
