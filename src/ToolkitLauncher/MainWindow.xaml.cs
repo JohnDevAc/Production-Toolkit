@@ -14,6 +14,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly HttpClient apiHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly HttpClient iconHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly HttpClient downloadHttp = new() { Timeout = TimeSpan.FromMinutes(30) };
+    private readonly HttpClient discoveryHttp = JobConfiguratorDiscovery.CreateClient();
+    private CancellationTokenSource? discoveryCancellation;
+    private int discoveryGeneration;
     private readonly GitHubClient github;
     private readonly PackageService packages;
     private readonly IconService icons;
@@ -93,7 +96,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             if (!e.Cancel) lifetime.Cancel();
         };
-        Closed += (_, _) => { apiHttp.Dispose(); iconHttp.Dispose(); downloadHttp.Dispose(); lifetime.Dispose(); };
+        Closed += (_, _) => { apiHttp.Dispose(); iconHttp.Dispose(); downloadHttp.Dispose(); discoveryHttp.Dispose(); lifetime.Dispose(); };
         if (local.Warning is not null) Footer = local.Warning;
     }
 
@@ -149,6 +152,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     var environment = card.Definition.IsEnvironment ? await EnvironmentStatusService.ReadAsync(shutdown) : null;
                     return (Found: found, Icon: icon, Environment: environment);
                 }, shutdown);
+                // LAN discovery starts as soon as local detection finishes, even
+                // when GitHub is offline or its release request is still pending.
+                if (card.Definition.IsJob) _ = DiscoverAfterLocalDetectionAsync();
+                async Task DiscoverAfterLocalDetectionAsync()
+                {
+                    try
+                    {
+                        var detected = await installedTask;
+                        if (shutdown.IsCancellationRequested) return;
+                        card.Installed = detected.Found;
+                        card.Recompute();
+                        await RefreshJobDiscoveryAsync(card);
+                    }
+                    catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+                    catch (Exception error) { local.Log("Job Configurator detection: " + error.Message); }
+                }
                 try
                 {
                     try
@@ -185,6 +204,67 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         finally { refreshing = false; Notify(nameof(CanRefresh)); Notify(nameof(RefreshText)); Notify(nameof(Summary)); }
     }
 
+    public async Task RefreshJobDiscoveryAsync(AppCard card, JobConfiguratorDiscovery? discovery = null)
+    {
+        if (!card.Definition.IsJob || shutdown.IsCancellationRequested) return;
+        var generation = ++discoveryGeneration;
+        discoveryCancellation?.Cancel();
+        card.NetworkConfigurators.Clear();
+        card.NetworkDiscoveryStatus = "";
+        if (card.Installed is not null) return;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
+        discoveryCancellation = cancellation;
+        var acceptingResults = true;
+        card.NetworkDiscoveryStatus = "Looking for NDI Job Configurator on your network…";
+        try
+        {
+            var result = await Task.Run(() => (discovery ?? new JobConfiguratorDiscovery(discoveryHttp)).DiscoverAsync(instance =>
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (acceptingResults && generation == discoveryGeneration && ReferenceEquals(discoveryCancellation, cancellation)
+                        && !shutdown.IsCancellationRequested && card.Installed is null && !card.NetworkConfigurators.Contains(instance))
+                        card.NetworkConfigurators.Add(instance);
+                });
+            }, cancellation.Token), cancellation.Token);
+            acceptingResults = false;
+            if (generation != discoveryGeneration || card.Installed is not null) return;
+            card.NetworkConfigurators.Clear();
+            foreach (var instance in result.Instances) card.NetworkConfigurators.Add(instance);
+            card.NetworkDiscoveryStatus = result.TimedOut ? $"Network check incomplete ({result.Checked} of {result.Total} addresses). Use Check for updates to retry."
+                : result.Instances.Count > 0 ? "" : result.Total == 0 ? "No supported local network is connected." : "No NDI Job Configurator found on your network.";
+            if (result.UnsupportedNetworks > 0) card.NetworkDiscoveryStatus += " Automatic discovery supports IPv4 /20–/30 networks.";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            if (generation == discoveryGeneration && !shutdown.IsCancellationRequested)
+            {
+                card.NetworkDiscoveryStatus = "Could not check the local network. Use Check for updates to retry.";
+                local.Log("Job Configurator discovery: " + error.Message);
+            }
+        }
+        finally { acceptingResults = false; if (ReferenceEquals(discoveryCancellation, cancellation)) discoveryCancellation = null; }
+    }
+
+    private async void OpenNetworkConfiguratorClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not NetworkConfigurator instance) return;
+        var card = Cards.Single(c => c.Definition.IsJob);
+        try
+        {
+            if (await new JobConfiguratorDiscovery(discoveryHttp).ProbeAsync(instance.Address, shutdown) is null)
+            {
+                card.NetworkConfigurators.Remove(instance);
+                card.NetworkDiscoveryStatus = "That server is no longer reachable. Use Check for updates to search again.";
+                return;
+            }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(instance.Address.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+        catch (Exception error) { Report(card, "Could not open the web UI. " + Friendly(error)); }
+    }
+
     private async void RefreshClick(object sender, RoutedEventArgs e)
     {
         if (!CanRefresh) return;
@@ -212,6 +292,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     return (Found: found, Icon: icon, Environment: environment);
                 }, shutdown);
                 card.Installed = result.Found;
+                if (card.Definition.IsJob && !PreviewMode) _ = RefreshJobDiscoveryAsync(card);
                 card.EnvironmentStatus = result.Environment;
                 card.UpdateInstalledIcon(result.Icon);
             }

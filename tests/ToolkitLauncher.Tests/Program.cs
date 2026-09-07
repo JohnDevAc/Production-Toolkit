@@ -14,7 +14,7 @@ using System.Windows.Threading;
 using ToolkitLauncher;
 using ToolkitLauncher.Core;
 
-internal static class Program
+internal static partial class Program
 {
     private static int count;
     private static readonly Dictionary<string, BitmapSource> LiveIcons = [];
@@ -40,6 +40,7 @@ internal static class Program
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
             EnvironmentTests();
             PcAgentSetupTests();
+            JobDiscoveryTestsAsync().GetAwaiter().GetResult();
             if (args.Contains("--environment"))
             {
                 LiveEnvironment = EnvironmentStatusService.ReadAsync(default).GetAwaiter().GetResult();
@@ -624,6 +625,7 @@ internal static class Program
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
         InstallerRefreshTests();
         PcAgentSetupFlowTests();
+        JobDiscoveryFlowTests();
         ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
@@ -749,7 +751,7 @@ internal static class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
-        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "incomplete-agent" })
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "incomplete-agent", "network-configurators" })
         {
             foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
             var environment = window.Cards[0];
@@ -775,6 +777,11 @@ internal static class Program
                 if (scenario == "setup-download-only") environment.Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true);
             }
             environment.EnvironmentStatus = EnvironmentSnapshot.From(evidence, DateTimeOffset.Now);
+            if (scenario == "network-configurators")
+            {
+                window.Cards[1].NetworkConfigurators.Add(new(new Uri("http://192.0.2.10:8091/")));
+                window.Cards[1].NetworkConfigurators.Add(new(new Uri("http://192.0.2.11:8091/")));
+            }
             foreach (var card in window.Cards) card.Recompute();
             foreach (var label in Descendants<TextBlock>(root)) label.GetBindingExpression(TextBlock.TextProperty)?.UpdateTarget();
             foreach (var scale in new[] { 1d, 2d, 2.5d })
@@ -799,8 +806,14 @@ internal static class Program
                 {
                     var view = (AppCard)card.DataContext;
                     var buttons = Descendants<Button>(card).Where(Rendered).ToArray();
-                    if (view.ShowCompact && (buttons.Length != 1 || buttons[0].Content?.ToString() != "Install"))
+                    if (view.ShowCompact && (buttons.Length != 1 + view.NetworkConfigurators.Count || buttons[0].Content?.ToString() != "Install"))
                         throw new Exception("Unexpected action on an uninstalled card.");
+                    if (view.ShowNetworkDiscovery && view.NetworkConfigurators.Count > 0)
+                    {
+                        var installBottom = buttons[0].TransformToAncestor(card).TransformBounds(new Rect(buttons[0].RenderSize)).Bottom;
+                        Check(buttons.Skip(1).All(b => b.TransformToAncestor(card).TransformBounds(new Rect(b.RenderSize)).Top >= installBottom),
+                            "Discovered web UI links render below Install at " + scale * 100 + "%");
+                    }
                     foreach (var control in Descendants<FrameworkElement>(card).Where(c => c is TextBlock or Button or Image).Where(Rendered))
                     {
                         var bounds = control.TransformToAncestor(card).TransformBounds(new Rect(control.RenderSize));

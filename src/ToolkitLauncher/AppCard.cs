@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -36,6 +37,10 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public ReleaseSnapshot? Snapshot { get; set; }
     public bool Offline { get; set; }
     public Installation? Installed { get; set; }
+    public ObservableCollection<NetworkConfigurator> NetworkConfigurators { get; } = [];
+    public bool ShowNetworkDiscovery => Definition.IsJob && Installed is null;
+    private string networkDiscoveryStatus = "";
+    public string NetworkDiscoveryStatus { get => networkDiscoveryStatus; set { networkDiscoveryStatus = value; Notify(); } }
     public EnvironmentSnapshot? EnvironmentStatus { get; set; }
     public bool ShowEnvironment => Definition.IsEnvironment;
     public bool ShowChannelNote => !Definition.IsEnvironment && !NeedsPcAgentSetup;

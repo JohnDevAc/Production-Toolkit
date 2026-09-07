@@ -1,5 +1,9 @@
 # Interoperability and setup readiness
 
+## Network Job Configurator links — 7 September 2026
+
+When local Job Configurator detection is empty, Toolkit starts independent LAN discovery during startup, explicit update checks and post-setup refresh. It verifies the current or legacy Job Configurator product on `/api/health`, then exposes each discovered TCP 8091 web UI below Install. Probes bypass internet proxies, refuse redirects, limit response size and time, cover complete supported /20–/30 subnets, and report partial/unsupported coverage. Remote discovery does not mark the application locally installed. Closing Toolkit or replacing a scan cancels pending probes; local installation clears the links. No server or companion integration contract changed.
+
 ## PC Agent setup recovery
 
 The PC Agent card now checks per-user configuration independently of executable version. Missing, unreadable or invalid schema-1 identity/network/membership state requires **Complete setup**. It follows the agent's current/legacy state precedence and does not treat a disconnected adapter as missing setup. A matching installed Agent/Setup pair can complete configuration offline; missing or mismatched Setup requires the complete release package. Recovery retains newer installed versions. Local checks run again before actions and after setup exits, including unsuccessful or incomplete setup. Toolkit never writes Agent configuration or accepts its licence; the independently installed Setup owns those operations. The server process contract and remote consent flow are unchanged.

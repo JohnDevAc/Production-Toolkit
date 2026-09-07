@@ -124,6 +124,14 @@
         <ComboBox Width="150" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" IsEnabled="{Binding CanChoose}" HorizontalAlignment="Center" Margin="0,16,0,12"
          AutomationProperties.Name="Release channel" ToolTip="Choose the release channel to install."/>
         <Button Content="Install" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
+        <StackPanel Visibility="{Binding ShowNetworkDiscovery, Converter={StaticResource VisibleIf}}" Margin="0,8,0,0">
+         <ItemsControl ItemsSource="{Binding NetworkConfigurators}">
+          <ItemsControl.ItemTemplate><DataTemplate>
+           <Button Content="{Binding LinkText}" ToolTip="{Binding Address}" Style="{StaticResource Link}" Click="OpenNetworkConfiguratorClick" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+          </DataTemplate></ItemsControl.ItemTemplate>
+         </ItemsControl>
+         <TextBlock Text="{Binding NetworkDiscoveryStatus}" FontSize="11" Foreground="{StaticResource Muted}" TextAlignment="Center" Margin="0,4,0,0"/>
+        </StackPanel>
         <Grid Visibility="{Binding Busy, Converter={StaticResource VisibleIf}}" Margin="0,12,0,0">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
          <ProgressBar Height="5" Value="{Binding Progress}" IsIndeterminate="{Binding InstallerRunning}" VerticalAlignment="Center" Foreground="{Binding Theme.Primary}"/>

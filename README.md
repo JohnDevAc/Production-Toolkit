@@ -8,7 +8,7 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download **Production-Toolkit-1.3.3-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.4-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
@@ -29,6 +29,8 @@ Uninstalled applications show a large app icon, their name, a Stable / Developme
 - **Install**, **Update**, or **Switch version**, according to the detected installation.
 - **Launch** for installed applications; **Open setup** for Environment Setup.
 - Matching layouts with colours derived from each application's icon.
+
+When NDI Job Configurator is not installed locally, startup also searches connected IPv4 networks for a running instance. Each verified server gets an **Open web UI · address** link below **Install**. Links appear as servers respond; release checks and the other cards remain usable. **Check for updates** repeats discovery and clears stale results, and each link is checked again before opening in your default browser. The read-only search probes TCP 8091 on complete /20–/30 subnets, with bounded concurrency, short request deadlines and a four-minute overall limit. Unsupported networks and partial scans are reported. It does not need internet or save remote results between launches.
 
 The app reads installed versions, icons and release information on startup and during **Check for updates**. When an installer or **Open setup** window closes, all cards automatically refresh their local installed versions, icons, actions and environment status. This also detects components installed by another app's setup and changes made during repair, uninstall or incomplete setup. It uses the saved release information without another GitHub check, so API cooldowns do not block the refresh. There is no timer or background polling. Finish one installer before opening another; downloads remain cancellable. The app never automatically accepts an application's licence or runs an unattended installation. Routine launch, cancellation and completion confirmations stay out of the cards; errors and active installation/download progress remain visible.
 
