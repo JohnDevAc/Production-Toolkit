@@ -8,7 +8,7 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download **Production-Toolkit-1.3.4-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.5-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
@@ -25,8 +25,8 @@ Uninstall through Windows **Installed apps** or the installed `unins000.exe`. Un
 Uninstalled applications show a large app icon, their name, a Stable / Development selector and a single **Install** button. Installed applications keep their detailed cards:
 
 - **Stable / Development** selection, remembered separately for each application.
-- The installed version and latest published version in that channel.
-- **Install**, **Update**, or **Switch version**, according to the detected installation.
+- The installed version, a simple **Up to date** or **Needs updating** status, and the latest published version in that channel.
+- **Install**, **Update**, or **Switch version**, according to the detected installation. When the installed version is current, the update button disappears and **Launch** or **Open setup** fills the action row. Incomplete installations still offer **Complete setup**.
 - **Launch** for installed applications; **Open setup** for Environment Setup.
 - Matching layouts with colours derived from each application's icon.
 
@@ -45,7 +45,7 @@ The app reads installed versions, icons and release information on startup and d
 
 PC Agent files alone do not mean setup is complete. The toolkit checks the current Windows account's saved agent configuration and the matching installed Setup utility. Missing, unreadable or invalid configuration shows **Setup incomplete** and offers **Complete setup**, even when the installed version is current. A complete matching local package can finish setup offline without another download. If Setup is missing or mismatched, the toolkit offers the complete selected release package; recovery does not downgrade a newer installed agent. Setup retains its normal licence, adapter selection and UAC flow. When it closes, the card rereads configuration before enabling **Launch**. A disconnected production adapter does not imply an incomplete installation.
 
-**Environment Setup separates the setup download from the installed environment.** Its setup executable is labelled **Downloaded · up to date** or **Downloaded · out of date**, independently of the **Installed fully**, **Installed partially**, or **Not installed** environment status. Cached release comparisons remain labelled as cached. A persistent setup launcher also counts as an available setup executable.
+**Environment Setup uses the same installed-version and update-status labels as the other applications.** Its version describes the local setup executable, while the environment status and component rows show **Installed fully**, **Installed partially**, or **Not installed**. Download and cache details are kept out of the card; hover the update status to see when releases were last checked. A persistent setup launcher also counts as an available setup executable.
 
 The environment check reads Setup's configuration, the managed WSL registration and KiloLink container, startup watchdog, NDI Tools registration and launcher, and NDI Discovery executable/service or task. Component rows show the container's running state and web response, the installed NDI Tools version, and whether Discovery is running and owns its listening port. Hover the status or component rows for diagnostic details and the local check time. A stopped service can still be fully installed; an unreadable or stopped WSL environment is labelled **Installation not verified** when its container cannot be inspected. Pending setup continuation is reported as partial.
 
@@ -61,7 +61,7 @@ Environment detection is read-only, runs only at startup or **Check for updates*
 - Channel changes are explicit. A newer locally installed version is not silently downgraded. Where stable and development publish the exact same SHA-256 package, that equivalent package counts as current in either channel.
 - For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release. A newer persistent launcher takes precedence over an older saved setup; at equal versions the persistent launcher is preferred.
 - Successful installer exit alone is not proof of installation. The next startup or explicit update check rereads the actual local version. Failures and restart-required exit codes remain visible.
-- If GitHub is offline or rate-limited, cached metadata remains available with its original check time and a **Cached** label. “Current in cache” is not a fresh online check. Previously installed applications remain launchable.
+- If GitHub is offline or rate-limited, saved release information remains available. The update-status tooltip gives its original check time and explains when the comparison uses a previous check. Previously installed applications remain launchable.
 - Rapid restarts reuse successful release checks for ten minutes. **Check for updates** can refresh sooner, but repeated clicks within one minute reuse the last result. Installed versions and icons are still read on startup and each explicit check. The toolkit's own release check uses the same cache and request queue as the four app cards.
 - GitHub API requests run one at a time. A rate limit pauses all remaining API requests until GitHub's reset or `Retry-After` deadline; that deadline survives restarting the toolkit. Expiry never starts an automatic retry: reopen the toolkit or click **Check for updates** afterward. GitHub's unauthenticated allowance is shared by applications using the same public IP, so other software can still exhaust it. See [GitHub's rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
 

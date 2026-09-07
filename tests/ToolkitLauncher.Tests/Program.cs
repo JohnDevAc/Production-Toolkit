@@ -527,16 +527,16 @@ internal static partial class Program
             Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true),
             Snapshot = new([Release("v1.3.2")], now), EnvironmentStatus = empty
         };
-        Check(card.Status == "Downloaded · up to date" && card.EnvironmentSummary == "Environment · Not installed",
-            "A current download never implies that the environment is installed");
+        Check(card.Status == "Up to date" && card.EnvironmentSummary == "Environment · Not installed",
+            "Setup version status remains independent of environment installation");
         Check(card.ShowCompact && card.CanInstall && card.InstallText == "Install", "A current cached setup can install a completely missing environment");
         card.EnvironmentStatus = EnvironmentSnapshot.From(missing, now);
         Check(!card.ShowCompact && card.CanInstall && card.InstallText == "Complete setup", "Partial environments keep their details and can complete setup from the cached executable");
         card.EnvironmentStatus = complete;
         Check(!card.ShowCompact && !card.CanInstall && card.CanLaunch, "A fully installed current environment offers its existing setup launcher");
         card.Installed = new("C:\\Downloads\\setup.exe", "1.3.1", true);
-        Check(card.Status == "Downloaded · out of date" && card.EnvironmentStatus.State == EnvironmentInstallationState.Full,
-            "An outdated setup download is independent of complete environment installation");
+        Check(card.Status == "Needs updating" && card.EnvironmentStatus.State == EnvironmentInstallationState.Full,
+            "An outdated setup version is independent of complete environment installation");
         var absent = new AppCard(Catalog.Apps[1]);
         Check(absent.ShowCompact && !absent.CanLaunch, "Uninstalled applications use the simple install card");
         absent.Installed = new("C:\\Programs\\app.exe", "1.0.0");

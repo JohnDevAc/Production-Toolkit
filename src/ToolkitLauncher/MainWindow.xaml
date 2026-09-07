@@ -59,10 +59,10 @@
         <Grid Grid.Row="2" Margin="0,0,0,10">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
          <StackPanel Margin="0,0,12,0">
-          <TextBlock Text="{Binding VersionHeading}" ToolTip="{Binding DetailNote}" FontSize="11" Foreground="{StaticResource Muted}"/>
+          <TextBlock Text="Installed version" FontSize="11" Foreground="{StaticResource Muted}"/>
           <TextBlock Text="{Binding InstalledText}" ToolTip="{Binding VersionToolTip}" FontWeight="SemiBold" Margin="0,4,0,0"/>
          </StackPanel>
-         <Border Grid.Column="1" Background="#F0F4F6" Padding="9,5" CornerRadius="5" VerticalAlignment="Center" MaxWidth="185">
+         <Border Grid.Column="1" Background="#F0F4F6" Padding="9,5" CornerRadius="5" VerticalAlignment="Center" MaxWidth="185" ToolTip="{Binding StatusToolTip}">
           <TextBlock Text="{Binding Status}" Foreground="{Binding StatusColor}" FontSize="11" FontWeight="SemiBold"/>
          </Border>
         </Grid>
@@ -96,8 +96,15 @@
         <Border Grid.Row="5" MinHeight="16"/>
         <Grid Grid.Row="6">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-         <Button Content="{Binding InstallText}" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
-         <Button Grid.Column="2" Content="{Binding LaunchText}" Foreground="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Border}" Click="LaunchClick" IsEnabled="{Binding CanLaunch}"/>
+         <Button Content="{Binding InstallText}" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}" Visibility="{Binding ShowPrimary, Converter={StaticResource VisibleIf}}"/>
+         <Button Content="{Binding LaunchText}" Foreground="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Border}" Click="LaunchClick" IsEnabled="{Binding CanLaunch}">
+          <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+           <Setter Property="Grid.Column" Value="2"/>
+           <Style.Triggers><DataTrigger Binding="{Binding ShowPrimary}" Value="False">
+            <Setter Property="Grid.Column" Value="0"/><Setter Property="Grid.ColumnSpan" Value="3"/>
+           </DataTrigger></Style.Triggers>
+          </Style></Button.Style>
+         </Button>
         </Grid>
         <StackPanel Grid.Row="7" Margin="0,8,0,0">
          <Grid Visibility="{Binding Busy, Converter={StaticResource VisibleIf}}" Margin="0,8,0,4">
@@ -110,17 +117,11 @@
            <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
           </Style></TextBlock.Style>
          </TextBlock>
-         <TextBlock Text="{Binding CheckedText}" Foreground="{StaticResource Muted}" FontSize="10"/>
         </StackPanel>
        </Grid>
        <StackPanel Visibility="{Binding ShowCompact, Converter={StaticResource VisibleIf}}" VerticalAlignment="Center" Margin="12,12">
         <Image Source="{Binding Icon}" Width="96" Height="96" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="{Binding Name}"/>
         <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" TextAlignment="Center" Margin="0,14,0,0"/>
-        <TextBlock Text="{Binding CompactDownloadText}" FontSize="11" Foreground="{StaticResource Muted}" TextAlignment="Center" Margin="0,6,0,0">
-         <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-          <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
-         </Style></TextBlock.Style>
-        </TextBlock>
         <ComboBox Width="150" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" IsEnabled="{Binding CanChoose}" HorizontalAlignment="Center" Margin="0,16,0,12"
          AutomationProperties.Name="Release channel" ToolTip="Choose the release channel to install."/>
         <Button Content="Install" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
