@@ -52,17 +52,27 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public bool ShowDetails => !ShowCompact;
     public bool NeedsEnvironmentSetup => Definition.IsEnvironment && EnvironmentStatus?.State is EnvironmentInstallationState.NotInstalled or EnvironmentInstallationState.Partial;
     public bool NeedsPcAgentSetup => Definition.IsPcAgent && Installed?.PcAgent?.NeedsSetup == true;
+    public bool ShowPcAgentRuntime => Definition.IsPcAgent && Installed is not null;
+    public bool PcAgentRunning => Definition.IsPcAgent && Installed?.PcAgentRunning == true;
+    public string PcAgentRuntimeText => Installed?.PcAgentRunning switch
+    {
+        true => "Running", false => "Not running", _ => "Running status unavailable"
+    };
+    public string PcAgentRuntimeColour => PcAgentRunning ? "#24735B" : "#617082";
     public bool NeedsSetup => NeedsEnvironmentSetup || NeedsPcAgentSetup;
     public string SetupNotice => NeedsPcAgentSetup ? Installed!.PcAgent!.Detail +
         (State == UpdateState.NewerInstalled && ExistingSetupPath is null ? " Choose a release at least as new as the installed agent." : "") : "";
     public string? ExistingSetupPath => NeedsPcAgentSetup && (Asset is null || State is UpdateState.Current or UpdateState.NewerInstalled)
         ? Installed?.PcAgent?.SetupPath
+        : Definition.IsEnvironment && Installed is { IsSavedSetup: true } && (Asset is null ||
+            string.Equals(Installed.SavedSetup?.Tag, SelectedRelease?.Tag, StringComparison.OrdinalIgnoreCase)) ? Installed.Path
         : NeedsEnvironmentSetup && Installed is not null && (Asset is null || State == UpdateState.Current) ? Installed.Path : null;
     public Release? SelectedRelease => Snapshot is null ? null : ReleaseSelection.Latest(Snapshot.Releases, Channel);
     public ReleaseAsset? Asset => SelectedRelease is { } release ? ReleaseSelection.Installer(Definition, release) : null;
-    public bool EquivalentPackage => Installed is not null && SelectedRelease is not null && Snapshot is not null &&
-        VersionStatus.UsesEquivalentPackage(Definition, Installed.Version, SelectedRelease, Snapshot.Releases);
-    public UpdateState State => EquivalentPackage ? UpdateState.Current : VersionStatus.Evaluate(Installed is not null, Installed?.Version, SelectedRelease, Channel);
+    public bool HasInstallation => Installed is { IsSavedSetup: false };
+    public bool EquivalentPackage => HasInstallation && SelectedRelease is not null && Snapshot is not null &&
+        VersionStatus.UsesEquivalentPackage(Definition, Installed!.Version, SelectedRelease, Snapshot.Releases);
+    public UpdateState State => EquivalentPackage ? UpdateState.Current : VersionStatus.Evaluate(HasInstallation, Installed?.Version, SelectedRelease, Channel);
     private bool busy;
     public bool Busy { get => busy; set { busy = value; Recompute(); } }
     private bool installerRunning;
@@ -72,7 +82,8 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public bool CanChoose => !Busy && !Checking;
     public bool CanInstall => CanChoose && (ExistingSetupPath is not null || Asset is not null && (State != UpdateState.Current || NeedsSetup)
         && !(NeedsPcAgentSetup && State == UpdateState.NewerInstalled));
-    public bool CanLaunch => CanChoose && Installed is not null && !NeedsPcAgentSetup;
+    public bool CanLaunch => CanChoose && Installed is not null && !NeedsPcAgentSetup &&
+        (!Definition.IsPcAgent || Installed.PcAgentRunning == false);
     public bool CanCancel => Busy && !InstallerRunning;
     public bool ShowPrimary => State != UpdateState.Current || Installed is null || NeedsSetup;
     public string InstallText => ShowCompact ? "Install" : NeedsSetup ? "Complete setup" : State switch
@@ -82,12 +93,12 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
         UpdateState.Unknown when Installed is not null => "Install selected", _ => "Install"
     };
     public string LaunchText => Definition.IsEnvironment ? "Open setup" : "Launch";
-    public string InstalledText => Installed is null ? "Not detected" :
-        (Installed.Version?.Split('+')[0] ?? "Version unknown");
+    public string InstalledText => !HasInstallation ? "Not detected" :
+        (Installed!.Version?.Split('+')[0] ?? "Version unknown");
     public string LatestText => Snapshot is null ? "Not checked" : SelectedRelease is null ? "No release available" : SelectedRelease.Tag +
         (Asset is null ? " · no supported installer" : $" · {Asset.Size / 1048576d:0.#} MB");
-    public string VersionToolTip => Installed is null ? "Checks registered installations and the application's standard installation folders." : Installed.Version + "\n" + Installed.Path;
-    public string Status => NeedsPcAgentSetup ? "Setup incomplete" : Snapshot is null ? (Installed is null ? "Not installed" : "Not checked") : State switch
+    public string VersionToolTip => !HasInstallation ? "Checks registered installations and the application's standard installation folders." : Installed!.Version + "\n" + Installed.Path;
+    public string Status => NeedsPcAgentSetup ? "Setup incomplete" : Snapshot is null ? (!HasInstallation ? "Not installed" : "Not checked") : State switch
     {
         UpdateState.Current => "Up to date",
         UpdateState.UpdateAvailable => "Needs updating",

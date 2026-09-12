@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using ToolkitLauncher.Core;
 
 namespace ToolkitLauncher;
@@ -21,6 +22,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly PackageService packages;
     private readonly IconService icons;
     private readonly SelfUpdateService updater;
+    private readonly DispatcherTimer pcAgentRuntimeTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
+    private bool checkingPcAgentRuntime;
     private bool selfUpdating;
     private bool updatePromptOpen;
     private bool installerHandoff;
@@ -38,7 +41,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get
         {
             var updates = Cards.Count(c => c.State == UpdateState.UpdateAvailable);
-            return $"4 applications  ·  {Cards.Count(c => c.Installed is not null)} detected  ·  {updates} update{(updates == 1 ? "" : "s")} available";
+            return $"4 applications  ·  {Cards.Count(c => c.HasInstallation)} detected  ·  {updates} update{(updates == 1 ? "" : "s")} available";
         }
     }
     public string Footer { get; private set; } = "";
@@ -71,8 +74,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SizeChanged += (_, _) => SetLayoutWidth(ActualWidth);
         if (!preview)
         {
+            pcAgentRuntimeTimer.Tick += async (_, _) => await RefreshPcAgentRuntimeAsync();
+            Activated += async (_, _) => await RefreshPcAgentRuntimeAsync();
             Loaded += async (_, _) =>
             {
+                pcAgentRuntimeTimer.Start();
                 FitStartupWindow();
                 var initialSize = new Size(Width, Height);
                 if (checkOnStartup)
@@ -96,7 +102,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             if (!e.Cancel) lifetime.Cancel();
         };
-        Closed += (_, _) => { apiHttp.Dispose(); iconHttp.Dispose(); downloadHttp.Dispose(); discoveryHttp.Dispose(); lifetime.Dispose(); };
+        Closed += (_, _) => { pcAgentRuntimeTimer.Stop(); apiHttp.Dispose(); iconHttp.Dispose(); downloadHttp.Dispose(); discoveryHttp.Dispose(); lifetime.Dispose(); };
         if (local.Warning is not null) Footer = local.Warning;
     }
 
@@ -416,6 +422,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private static string Friendly(Exception e) => e is TaskCanceledException ? "The connection timed out. Try again when your connection is available." : e.Message;
     private void Report(AppCard card, string message) { card.Activity = message; local.Log(card.Name + ": " + message); }
     private void CancelClick(object sender, RoutedEventArgs e) => Card(sender).Cancellation?.Cancel();
+    public async Task RefreshPcAgentRuntimeAsync()
+    {
+        if (checkingPcAgentRuntime || shutdown.IsCancellationRequested) return;
+        checkingPcAgentRuntime = true;
+        try
+        {
+            foreach (var card in Cards.Where(c => c.Definition.IsPcAgent && c.Installed is not null && c.CanChoose))
+            {
+                var installed = card.Installed!;
+                var running = await Task.Run(() => PcAgentRuntime.Read(installed.Path), shutdown);
+                // Discard an older result if installation detection replaced the card.
+                if (!shutdown.IsCancellationRequested && ReferenceEquals(card.Installed, installed) && installed.PcAgentRunning != running)
+                {
+                    card.Installed = installed with { PcAgentRunning = running };
+                    card.Recompute();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+        finally { checkingPcAgentRuntime = false; }
+    }
     private async Task<bool> RefreshPcAgentAsync(AppCard card)
     {
         if (!card.Definition.IsPcAgent) return true;
@@ -439,6 +466,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (!await RefreshPcAgentAsync(card)) return;
             if (card.Installed is null) return;
             if (card.NeedsPcAgentSetup) { await PrepareAsync(card); return; }
+            if (!card.CanLaunch) return;
             if (card.Definition.IsEnvironment)
             {
                 if (Cards.Any(c => c.InstallerRunning)) { Report(card, "Finish the open installer before starting another installation."); return; }
@@ -448,6 +476,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 return;
             }
             InstallationService.Launch(card.Definition, card.Installed);
+            if (card.Definition.IsPcAgent) await RefreshPcAgentAsync(card);
             card.Activity = "";
             local.Log(card.Name + ": launched.");
         }

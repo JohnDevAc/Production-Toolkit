@@ -78,6 +78,8 @@
          </Grid>
         </Border>
         <StackPanel Grid.Row="4" Margin="0,8,0,0">
+         <TextBlock Text="{Binding PcAgentRuntimeText}" Foreground="{Binding PcAgentRuntimeColour}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5"
+          Visibility="{Binding ShowPcAgentRuntime, Converter={StaticResource VisibleIf}}"/>
          <TextBlock Text="{Binding SetupNotice}" FontSize="11" Foreground="#94620F" Visibility="{Binding NeedsPcAgentSetup, Converter={StaticResource VisibleIf}}"/>
          <TextBlock Text="{Binding ChannelNote}" FontSize="11" Foreground="{StaticResource Muted}" Visibility="{Binding ShowChannelNote, Converter={StaticResource VisibleIf}}"/>
          <StackPanel Visibility="{Binding ShowEnvironment, Converter={StaticResource VisibleIf}}">

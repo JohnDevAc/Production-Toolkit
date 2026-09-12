@@ -8,7 +8,9 @@ namespace ToolkitLauncher;
 
 public sealed record Installation(string Path, string? Version, bool IsSavedSetup = false)
 {
+    public SetupRecord? SavedSetup { get; init; }
     public PcAgentReadiness? PcAgent { get; init; }
+    public bool? PcAgentRunning { get; init; }
 }
 
 public sealed class InstallationService(LocalState state)
@@ -25,7 +27,7 @@ public sealed class InstallationService(LocalState state)
         var paths = RegistryPaths(app).Concat(app.KnownPaths.Select(Environment.ExpandEnvironmentVariables));
         var installedPath = paths.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
         Installation? installed = installedPath is null ? null : ReadInstallation(app, installedPath);
-        if (app.IsEnvironment && setup is not null && File.Exists(setup.Path))
+        if (installed is null && app.IsEnvironment && setup is not null && File.Exists(setup.Path))
         {
             try
             {
@@ -33,12 +35,8 @@ public sealed class InstallationService(LocalState state)
                 var digest = "sha256:" + Convert.ToHexString(SHA256.HashData(file));
                 if (string.Equals(digest, setup.Digest, StringComparison.OrdinalIgnoreCase))
                 {
-                    // A retained bootstrapper must not hide a newer persistent launcher
-                    // installed by the application's own updater.
-                    var savedVersion = AppVersion.Parse(setup.Tag);
-                    var installedVersion = AppVersion.Parse(installed?.Version);
-                    if (installed is null || savedVersion is not null && installedVersion is not null && savedVersion.CompareTo(installedVersion) > 0)
-                        return new(setup.Path, setup.Tag, true);
+                    // A verified download is reusable, but is not an installed version.
+                    return new(setup.Path, null, true) { SavedSetup = setup };
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
@@ -49,7 +47,11 @@ public sealed class InstallationService(LocalState state)
     private static Installation ReadInstallation(AppDefinition app, string path)
     {
         var installation = new Installation(path, ReadVersion(path));
-        return app.IsPcAgent ? installation with { PcAgent = PcAgentReadiness.Read(app, installation) } : installation;
+        return app.IsPcAgent ? installation with
+        {
+            PcAgent = PcAgentReadiness.Read(app, installation),
+            PcAgentRunning = PcAgentRuntime.Read(path)
+        } : installation;
     }
 
     public static string? ReadVersion(string path)

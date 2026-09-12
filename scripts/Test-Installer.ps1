@@ -13,6 +13,7 @@ $startLink = Join-Path ([Environment]::GetFolderPath('Programs')) ($testTitle + 
 $version = ([xml](Get-Content -LiteralPath (Join-Path $taskRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
 $compiler = & (Join-Path $PSScriptRoot 'Get-InnoSetup.ps1')
 $checks = 0
+$launchParameters = '--skip-startup-checks --isolated-test-state'
 
 function Assert-Test($condition, [string]$message) {
     if (-not $condition) { throw $message }
@@ -29,7 +30,7 @@ function Find-TestApp {
     return @(Get-Process -Name 'Production Toolkit' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $testExe })
 }
 function Compile-TestSetup([string]$buildVersion, [string]$payload) {
-    & $compiler /Qp '/DLaunchParameters=--skip-startup-checks' ('/DAppVersion=' + $buildVersion) ('/DAppIdentity=' + $testId) ('/DAppTitle=' + $testTitle) ('/DPublishDirectory=' + $payload) ('/DReleaseDirectory=' + $testPackages) (Join-Path $taskRoot 'installer\ProductionToolkit.iss')
+    & $compiler /Qp ('/DLaunchParameters=' + $launchParameters) ('/DAppVersion=' + $buildVersion) ('/DAppIdentity=' + $testId) ('/DAppTitle=' + $testTitle) ('/DPublishDirectory=' + $payload) ('/DReleaseDirectory=' + $testPackages) (Join-Path $taskRoot 'installer\ProductionToolkit.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Test installer compilation failed.' }
 }
 
@@ -50,12 +51,14 @@ try {
     Assert-Test ((Test-Path -LiteralPath $desktopLink) -and (Test-Path -LiteralPath $startLink)) 'Desktop and Start menu shortcuts are created'
     $shell = New-Object -ComObject WScript.Shell
     Assert-Test (($shell.CreateShortcut($desktopLink).TargetPath -eq $testExe) -and ($shell.CreateShortcut($startLink).TargetPath -eq $testExe)) 'Both shortcuts point to the installed executable'
+    Assert-Test (($shell.CreateShortcut($desktopLink).Arguments -eq $launchParameters) -and ($shell.CreateShortcut($startLink).Arguments -eq $launchParameters)) 'Fixture shortcuts retain isolated startup parameters'
     [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null
     $marker = Join-Path $installRoot 'user-preserved-marker.txt'
     Set-Content -LiteralPath $marker -Value 'Keep on upgrade and uninstall'
-    $running = Start-Process -FilePath $testExe -ArgumentList '--skip-startup-checks' -WindowStyle Hidden -PassThru
+    $running = Start-Process -FilePath $testExe -ArgumentList $launchParameters -WindowStyle Hidden -PassThru
     Assert-Test (-not $running.WaitForExit(4000)) 'Installed application launches'
-    $duplicate = Start-Process -FilePath $testExe -WindowStyle Hidden -PassThru
+    Assert-Test (Test-Path -LiteralPath (Join-Path $installRoot 'qa-state')) 'Installed fixture uses its own preferences directory'
+    $duplicate = Start-Process -FilePath $testExe -ArgumentList $launchParameters -WindowStyle Hidden -PassThru
     Assert-Test ($duplicate.WaitForExit(10000)) 'Launching a shortcut again reuses the existing instance'
     $code = Run-Setup $newSetup ($common + @('/TOOLKITUPDATE=1', ('/LOG="' + (Join-Path $testRoot 'upgrade.log') + '"')))
     Assert-Test ($code -eq 0 -and $running.WaitForExit(10000)) 'Upgrade gracefully closes the running old version'

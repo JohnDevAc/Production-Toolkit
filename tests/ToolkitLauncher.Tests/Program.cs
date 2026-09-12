@@ -39,6 +39,8 @@ internal static partial class Program
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
             EnvironmentTests();
+            PreferenceRecoveryTests();
+            CachedSetupVersionTests();
             PcAgentSetupTests();
             JobDiscoveryTestsAsync().GetAwaiter().GetResult();
             if (args.Contains("--environment"))
@@ -524,17 +526,18 @@ internal static partial class Program
         Check(EnvironmentSnapshot.From(badPort, now).Components[2].Status.Contains("not listening"), "A running Discovery process without its listener is not reported ready");
         var card = new AppCard(Catalog.Apps[0])
         {
-            Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true),
+            Installed = new("C:\\Downloads\\setup.exe", null, true) { SavedSetup = new("C:\\Downloads\\setup.exe", "v1.3.2", "fixture") },
             Snapshot = new([Release("v1.3.2")], now), EnvironmentStatus = empty
         };
-        Check(card.Status == "Up to date" && card.EnvironmentSummary == "Environment · Not installed",
-            "Setup version status remains independent of environment installation");
+        Check(card.Status == "Setup needed" && card.InstalledText == "Not detected" && card.EnvironmentSummary == "Environment · Not installed",
+            "Cached setup metadata does not imply an installed Environment launcher");
         Check(card.ShowCompact && card.CanInstall && card.InstallText == "Install", "A current cached setup can install a completely missing environment");
         card.EnvironmentStatus = EnvironmentSnapshot.From(missing, now);
         Check(!card.ShowCompact && card.CanInstall && card.InstallText == "Complete setup", "Partial environments keep their details and can complete setup from the cached executable");
         card.EnvironmentStatus = complete;
+        card.Installed = new("C:\\Programs\\setup.exe", "1.3.2");
         Check(!card.ShowCompact && !card.CanInstall && card.CanLaunch, "A fully installed current environment offers its existing setup launcher");
-        card.Installed = new("C:\\Downloads\\setup.exe", "1.3.1", true);
+        card.Installed = new("C:\\Programs\\setup.exe", "1.3.1");
         Check(card.Status == "Needs updating" && card.EnvironmentStatus.State == EnvironmentInstallationState.Full,
             "An outdated setup version is independent of complete environment installation");
         var absent = new AppCard(Catalog.Apps[1]);
@@ -622,10 +625,14 @@ internal static partial class Program
     private static void ReviewUi(string output)
     {
         Directory.CreateDirectory(output);
-        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+        var app = new App(true) { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+        PreferenceRecoveryWindowTests();
         InstallerRefreshTests();
         PcAgentSetupFlowTests();
+        PcAgentRuntimeFlowTests();
         JobDiscoveryFlowTests();
+        Check(app.PreviewMode && app.Windows.OfType<MainWindow>().All(window => window.PreviewMode),
+            "UI dispatcher startup cannot open the normal dashboard or access live preferences and release feeds");
         ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
@@ -638,7 +645,7 @@ internal static partial class Program
             var release = Release(tags[i], i == 3);
             release.Assets = [new() { Name = i switch { 0 => "Kiloview-Environment-Setup.exe", 1 => "NDI-Job-Configurator.exe", 2 => "Resolume-Arena-Configurator-v0.3.5-win-x64-Setup.exe", _ => "NDI-Configurator-PC-Agent-win-x64.zip" }, Size = i == 0 ? 1275904 : 147000000 }];
             card.Snapshot = new([release], new(2026, 9, 6, 12, 30, 0, TimeSpan.Zero));
-            card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]);
+            card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]) { PcAgentRunning = false };
             if (card.Definition.IsEnvironment) card.EnvironmentStatus = LiveEnvironment ?? EnvironmentSnapshot.From(FullEnvironment(), DateTimeOffset.Now);
             card.Offline = false; card.Channel = i == 3 ? ReleaseChannel.Development : ReleaseChannel.Stable;
             if (LiveIcons.TryGetValue(card.Definition.Id + card.Channel, out var icon)) card.UpdateIcons(null, icon);
@@ -751,7 +758,7 @@ internal static partial class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
-        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "incomplete-agent", "network-configurators" })
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "running-agent", "stopped-agent", "unknown-agent", "incomplete-agent", "network-configurators" })
         {
             foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
             var environment = window.Cards[0];
@@ -760,6 +767,15 @@ internal static partial class Program
             else if (scenario == "combined-host") { evidence.Roles = ["server", "client"]; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
             else if (scenario == "client-only") { evidence = EmptyEnvironment(); evidence.Roles = ["client"]; evidence.NdiTools = true; evidence.PcAgent = true; evidence.PcAgentConfigured = true; }
             else if (scenario == "unverified-environment") { evidence.DistroRunning = false; evidence.Container = null; evidence.ContainerRunning = null; }
+            else if (scenario is "running-agent" or "stopped-agent" or "unknown-agent")
+            {
+                window.Cards[3].Installed = new("C:\\Example\\agent.exe", "0.7.1")
+                {
+                    PcAgent = new(true, "C:\\Example\\setup.exe", ""), PcAgentRunning = scenario == "unknown-agent" ? null : scenario == "running-agent"
+                };
+                window.Cards[3].Snapshot = new([Release("v0.7.1")], DateTimeOffset.UtcNow);
+                window.Cards[3].Channel = ReleaseChannel.Stable;
+            }
             else if (scenario == "incomplete-agent")
             {
                 foreach (var card in window.Cards) card.Installed = new("C:\\Example\\app.exe", "1.0.0");
@@ -774,7 +790,8 @@ internal static partial class Program
             {
                 evidence = EmptyEnvironment();
                 foreach (var card in window.Cards) card.Installed = null;
-                if (scenario == "setup-download-only") environment.Installed = new("C:\\Downloads\\setup.exe", "1.3.2", true);
+                if (scenario == "setup-download-only") environment.Installed = new("C:\\Downloads\\setup.exe", null, true)
+                    { SavedSetup = new("C:\\Downloads\\setup.exe", "v1.3.2", "fixture") };
             }
             environment.EnvironmentStatus = EnvironmentSnapshot.From(evidence, DateTimeOffset.Now);
             if (scenario == "network-configurators")
@@ -792,6 +809,14 @@ internal static partial class Program
                 Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
                 root.UpdateLayout();
                 var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
+                if (scenario is "running-agent" or "stopped-agent" or "unknown-agent")
+                {
+                    var runtime = window.Cards[3];
+                    var actions = Descendants<Button>(cards[3]).Where(Rendered).ToArray();
+                    Check(actions.Length == 1 && actions[0].Content?.ToString() == "Launch" && actions[0].IsEnabled == (scenario == "stopped-agent")
+                        && Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == runtime.PcAgentRuntimeText),
+                        "PC Agent runtime status and Launch availability render correctly: " + scenario);
+                }
                 if (scenario == "incomplete-agent")
                 {
                     var actions = Descendants<Button>(cards[3]).Where(Rendered).ToArray();

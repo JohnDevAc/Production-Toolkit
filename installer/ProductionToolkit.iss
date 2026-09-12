@@ -64,8 +64,8 @@ Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "maintenance.version"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"
-Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"
+Name: "{autoprograms}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; Parameters: "{#LaunchParameters}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"
+Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; Parameters: "{#LaunchParameters}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"
 
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "{#LaunchParameters}"; Flags: nowait runasoriginaluser; Check: ShouldRestart

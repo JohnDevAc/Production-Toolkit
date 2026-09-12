@@ -18,18 +18,42 @@ public sealed class LocalState
     public string DownloadRoot => Path.Combine(Root, "Downloads");
     public Preferences Preferences { get; }
     public string? Warning { get; private set; }
+    private bool preferencesPreserved = true;
     public LocalState(string? root = null)
     {
         Root = root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Production Toolkit");
         Directory.CreateDirectory(Root);
-        try { Preferences = Read<Preferences>("settings.json") ?? new(); }
+        try
+        {
+            Preferences = File.Exists(Path.Combine(Root, "settings.json"))
+                ? Read<Preferences>("settings.json") ?? throw new JsonException("Preferences must be an object.") : new();
+            if (Preferences.Channels is null || Preferences.LaunchPaths is null || Preferences.Setups is null)
+            {
+                Preferences.Channels ??= [];
+                Preferences.LaunchPaths ??= [];
+                Preferences.Setups ??= [];
+                Warning = "Some saved preferences were invalid. Valid preferences were kept; missing collections use defaults.";
+                PreservePreferences();
+            }
+        }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
             Preferences = new();
             Warning = "Saved preferences could not be read. Using defaults. " + e.Message;
-            // Preserve the unreadable original before future preference writes.
-            var path = Path.Combine(Root, "settings.json");
-            if (File.Exists(path)) File.Copy(path, path + "." + DateTime.UtcNow.Ticks + ".bak");
+            PreservePreferences();
+        }
+    }
+    private void PreservePreferences()
+    {
+        var path = Path.Combine(Root, "settings.json");
+        try
+        {
+            if (File.Exists(path)) File.Copy(path, path + "." + Guid.NewGuid().ToString("N") + ".bak");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            preferencesPreserved = false;
+            Warning += " The original could not be backed up; preference saving is disabled. " + e.Message;
         }
     }
     private T? Read<T>(string name)
@@ -43,7 +67,11 @@ public sealed class LocalState
         File.WriteAllText(temporary, JsonSerializer.Serialize(data, GitHubClient.JsonOptions));
         File.Move(temporary, path, true);
     }
-    public void Save() => Write("settings.json", Preferences);
+    public void Save()
+    {
+        if (!preferencesPreserved) throw new IOException("Cannot replace saved preferences before their original contents are backed up.");
+        Write("settings.json", Preferences);
+    }
     public void SaveCache(AppDefinition app, ReleaseSnapshot snapshot) => Write(app.Id + "-releases.json", snapshot);
     public ReleaseSnapshot? LoadCache(AppDefinition app)
     {
