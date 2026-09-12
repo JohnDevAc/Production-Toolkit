@@ -624,6 +624,19 @@ internal static partial class Program
 
     private static void ReviewUi(string output)
     {
+        var previousContext = SynchronizationContext.Current;
+        try
+        {
+            // Invoke async UI flows with the same context as a real WPF event.
+            // Pumping a frame alone does not set the caller's await context.
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+            ReviewUiCore(output);
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+    }
+
+    private static void ReviewUiCore(string output)
+    {
         Directory.CreateDirectory(output);
         var app = new App(true) { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
         PreferenceRecoveryWindowTests();

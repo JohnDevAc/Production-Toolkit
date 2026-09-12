@@ -8,7 +8,7 @@ A native Windows application for installing, updating and launching four product
 
 ## Run
 
-Download **Production-Toolkit-1.3.6-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.7-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
