@@ -1,18 +1,20 @@
 namespace ToolkitLauncher.Core;
 
 public enum ReleaseChannel { Stable, Development }
-public enum PackageKind { Executable, ZipWithSetup }
+public enum PackageKind { Executable, ZipWithSetup, PortableZip }
 
 public sealed record AppDefinition(string Id, string Name, string Subtitle, string Description,
     string Repository, string Glyph, string Accent, string[] AssetPatterns,
     PackageKind PackageKind, string[] SetupNames, string[] ExecutableNames,
     string[] KnownPaths, string[] RegistryNames)
 {
+    public string[] RequiredPortableFiles { get; init; } = [];
     public string RepositoryUrl => $"https://github.com/JohnDevAc/{Repository}";
     public string RepositoryIconPath => Id switch
     {
         "environment" => "assets/setup.ico", "job" => "wwwroot/NDIJobConfigurator.ico",
         "resolume" => "src/ResolumeConfigurator/Assets/app-icon.ico", "pc-agent" => "assets/PcAgent.ico",
+        "udp-to-ndi" => "assets/app.ico", "testcard" => "src/TestCard.App/Assets/TestCard.ico",
         _ => throw new InvalidOperationException("No icon source configured for this application.")
     };
     public bool IsEnvironment => Id == "environment";
@@ -54,6 +56,21 @@ public static class Catalog
             ["NDI Configurator PC Agent.exe", "Kiloview PC Agent.exe"],
             [@"%ProgramFiles%\NDI Configurator\PC Agent\NDI Configurator PC Agent.exe",
              @"%ProgramFiles%\Kiloview\PC Agent\Kiloview PC Agent.exe"],
-            ["NDI Configurator PC Agent", "Kiloview PC Agent"])
+            ["NDI Configurator PC Agent", "Kiloview PC Agent"]),
+        new("udp-to-ndi", "UDP to NDI", "UDP / RTP VIDEO BRIDGE",
+            "Bridge UDP and RTP video and audio streams to NDI outputs.",
+            "udp-to-ndi", "\uE8AB", "#287DAD",
+            [@"^UDP-to-NDI-Setup-.+-x64\.exe$"], PackageKind.Executable, [],
+            ["UDP to NDI.exe"],
+            [@"%LOCALAPPDATA%\Programs\UDP to NDI\UDP to NDI.exe"], ["UDP to NDI"]),
+        new("testcard", "Test Card Generator", "NDI & UDP TEST SIGNALS",
+            "Generate HD and 4K test patterns, motion and audio for NDI and UDP.",
+            "TestCardGen", "\uE7F4", "#288E82",
+            [@"^TestCard-.+-win-x64\.zip$"], PackageKind.PortableZip, [],
+            ["TestCard.exe"], [], [])
+        {
+            RequiredPortableFiles = ["TestCard.dll", "TestCard.Worker.exe", "TestCard.Worker.dll",
+                "TestCard.runtimeconfig.json", "TestCard.Worker.runtimeconfig.json", ".runtime/dotnet.exe"]
+        }
     ];
 }

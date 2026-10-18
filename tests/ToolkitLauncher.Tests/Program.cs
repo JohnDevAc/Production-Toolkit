@@ -35,6 +35,8 @@ internal static partial class Program
         try
         {
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
+            NewApplicationPackageTestsAsync().GetAwaiter().GetResult();
+            if (args.Contains("--live-new-apps")) LiveAsync(newAppsOnly: true).GetAwaiter().GetResult();
             GitHubCheckTestsAsync().GetAwaiter().GetResult();
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
@@ -292,8 +294,10 @@ internal static partial class Program
                 var snapshot = await new GitHubClient(liveHttp).GetReleasesAsync(definition, default);
                 foreach (var channel in new[] { ReleaseChannel.Stable, ReleaseChannel.Development })
                 {
-                    var release = ReleaseSelection.Latest(snapshot.Releases, channel)!;
-                    var icon = await liveIcons.ReadRemoteAsync(definition, release.Tag, default);
+                    var release = ReleaseSelection.Latest(snapshot.Releases, channel);
+                    if (release is null && channel == ReleaseChannel.Development) continue;
+                    Check(release is not null, $"Live {definition.Name}: stable release available for its icon");
+                    var icon = await liveIcons.ReadRemoteAsync(definition, release!.Tag, default);
                     Check(icon is { PixelWidth: >= 64 }, $"Live {definition.Name}: {channel} {release.Tag} icon is available at full resolution");
                     LiveIcons[definition.Id + channel] = icon!;
                 }
@@ -386,7 +390,7 @@ internal static partial class Program
         var checks = Catalog.Apps.Append(ToolkitUpdates.Application)
             .Select(app => limitedClient.GetReleasesAsync(app, default, userRequested: true)).ToArray();
         await received.Task;
-        Check(limitedCalls == 1, "Release requests are serialized across all five applications");
+        Check(limitedCalls == 1, "Release requests are serialized across Toolkit and all managed applications");
         releaseResponse.SetResult();
         foreach (var check in checks)
             await ThrowsAsync<HttpRequestException>(async () => await check, "A rate limit pauses the shared check queue");
@@ -597,26 +601,29 @@ internal static partial class Program
         Check(PcAgentReadiness.Read(definition, installation).SetupPath is null, "Invalid local Setup cannot be reused");
     }
 
-    private static async Task LiveAsync()
+    private static async Task LiveAsync(bool newAppsOnly = false)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         var github = new GitHubClient(http);
         var packages = new PackageService(http, Path.Combine(Temporary, "live"));
-        foreach (var app in Catalog.Apps)
+        foreach (var app in Catalog.Apps.Where(app => !newAppsOnly || app.Id is "udp-to-ndi" or "testcard"))
         {
             var snapshot = await github.GetReleasesAsync(app, default);
             foreach (var channel in new[] { ReleaseChannel.Stable, ReleaseChannel.Development })
             {
                 var release = ReleaseSelection.Latest(snapshot.Releases, channel);
+                if (release is null && channel == ReleaseChannel.Development) continue;
                 Check(release is not null, $"Live {app.Name}: {channel} release found ({release?.Tag})");
                 var asset = ReleaseSelection.Installer(app, release!);
                 Check(asset is not null, $"Live {app.Name}: {channel} installer recognized");
                 PackageService.ValidateSource(app, asset!);
                 if (channel == ReleaseChannel.Stable)
                 {
-                    var package = await packages.PrepareAsync(app, asset!, null, default);
-                    Check(File.Exists(package.SetupPath), $"Live {app.Name}: installer downloaded, verified and prepared; NOT executed");
-                    Console.WriteLine("  Binary version: " + InstallationService.ReadVersion(package.SetupPath));
+                    var entry = app.PackageKind == PackageKind.PortableZip
+                        ? await packages.InstallPortableAsync(app, asset!, Path.Combine(Temporary, "live-applications"), null, default)
+                        : (await packages.PrepareAsync(app, asset!, null, default)).SetupPath;
+                    Check(File.Exists(entry), $"Live {app.Name}: package downloaded, verified and prepared; NOT executed");
+                    Console.WriteLine("  Binary version: " + InstallationService.ReadVersion(entry));
                 }
             }
         }
@@ -644,25 +651,28 @@ internal static partial class Program
         PcAgentSetupFlowTests();
         PcAgentRuntimeFlowTests();
         JobDiscoveryFlowTests();
+        PortableInstallFlowTests();
         Check(app.PreviewMode && app.Windows.OfType<MainWindow>().All(window => window.PreviewMode),
             "UI dispatcher startup cannot open the normal dashboard or access live preferences and release feeds");
         ReviewUpdatePrompt(output);
         var bindingErrors = new StringWriter();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new TextWriterTraceListener(bindingErrors));
         var window = new MainWindow(Path.Combine(Temporary, "ui"), true);
-        var tags = new[] { "v1.3.2", "v0.8.7", "v0.3.5", "v0.6.1-dev.1" };
-        var installed = new string?[] { "1.3.1.0", "0.8.7", null, "0.6.1-dev.1" };
+        var tags = new[] { "v1.3.2", "v0.8.7", "v0.3.5", "v0.6.1-dev.1", "v1.0.3", "v1.0.0" };
+        var installed = new string?[] { "1.3.1.0", "0.8.7", null, "0.6.1-dev.1", "1.0.2", "1.0.0" };
         for (var i = 0; i < window.Cards.Count; i++)
         {
             var card = window.Cards[i];
             var release = Release(tags[i], i == 3);
-            release.Assets = [new() { Name = i switch { 0 => "Kiloview-Environment-Setup.exe", 1 => "NDI-Job-Configurator.exe", 2 => "Resolume-Arena-Configurator-v0.3.5-win-x64-Setup.exe", _ => "NDI-Configurator-PC-Agent-win-x64.zip" }, Size = i == 0 ? 1275904 : 147000000 }];
+            release.Assets = [new() { Name = i switch { 0 => "Kiloview-Environment-Setup.exe", 1 => "NDI-Job-Configurator.exe", 2 => "Resolume-Arena-Configurator-v0.3.5-win-x64-Setup.exe", 3 => "NDI-Configurator-PC-Agent-win-x64.zip", 4 => "UDP-to-NDI-Setup-1.0.3-x64.exe", _ => "TestCard-1.0.0-win-x64.zip" }, Size = i == 0 ? 1275904 : 147000000 }];
             card.Snapshot = new([release], new(2026, 9, 6, 12, 30, 0, TimeSpan.Zero));
             card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]) { PcAgentRunning = false };
             if (card.Definition.IsEnvironment) card.EnvironmentStatus = LiveEnvironment ?? EnvironmentSnapshot.From(FullEnvironment(), DateTimeOffset.Now);
             card.Offline = false; card.Channel = i == 3 ? ReleaseChannel.Development : ReleaseChannel.Stable;
             if (LiveIcons.TryGetValue(card.Definition.Id + card.Channel, out var icon)) card.UpdateIcons(null, icon);
         }
+        Check(window.Summary == "6 applications  ·  5 detected  ·  2 updates available",
+            "Dashboard summary includes all managed applications and their installation/update states");
         var root = (FrameworkElement)window.Content;
         window.Content = null; root.DataContext = window;
         root.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, window.FontFamily);
@@ -688,7 +698,7 @@ internal static partial class Program
             var scroll = Descendants<ScrollViewer>(root).First();
             Console.WriteLine($"  Startup bounds {launchSize.Width:0} × {launchSize.Height:0} DIP; client {client}; scroll extent {scroll.ScrollableHeight:0.0}; root desired {root.DesiredSize}");
             Check(launchSize.Width <= area.Width && launchSize.Height <= area.Height, "Startup " + label + ": window fits work area");
-            if (mustFit) Check(scroll.ScrollableHeight < 1 && scroll.ScrollableWidth < 1, "Startup " + label + ": all four apps visible without scrollbars");
+            if (mustFit) Check(scroll.ScrollableHeight < 1 && scroll.ScrollableWidth < 1, "Startup " + label + ": all six apps visible without scrollbars");
             else Check(scroll.ScrollableHeight > 0 && scroll.ScrollableWidth < 1, "Startup " + label + ": scrolling retained only for limited desktop space");
             Check(!Descendants<Button>(root).Any(b => b.Content?.ToString()?.Contains("Downloads folder") == true), "Startup " + label + ": downloads-folder link removed");
             Check(!Descendants<Button>(root).Any(b => b.Content?.ToString() is "Download only" or "Locate app" or "Releases ↗"), "Startup " + label + ": extra card links removed");
@@ -713,7 +723,7 @@ internal static partial class Program
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             root.UpdateLayout();
             var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
-            Check(cards.Length == 4, "UI " + label + ": four cards rendered");
+            Check(cards.Length == Catalog.Apps.Length && cards.Length == 6, "UI " + label + ": six cards rendered");
             Check(cards.Select(c => Math.Round(c.ActualWidth, 2)).Distinct().Count() == 1, "UI " + label + ": equal card widths");
             if (label == "100")
             {
@@ -838,7 +848,7 @@ internal static partial class Program
                         && Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == "Setup incomplete"),
                         "Incomplete agent renders an enabled recovery action and a disabled Launch button");
                 }
-                Check(Math.Abs(cards[0].ActualHeight - cards[1].ActualHeight) < 1 && Math.Abs(cards[2].ActualHeight - cards[3].ActualHeight) < 1,
+                Check(cards.Chunk(window.Columns).All(row => row.Max(c => c.ActualHeight) - row.Min(c => c.ActualHeight) < 1),
                     scenario + " " + scale + ": each row has symmetrical card heights");
                 foreach (var card in cards)
                 {

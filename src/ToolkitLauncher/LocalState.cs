@@ -16,6 +16,7 @@ public sealed class LocalState
 {
     public string Root { get; }
     public string DownloadRoot => Path.Combine(Root, "Downloads");
+    public string ApplicationsRoot => Path.Combine(Root, "Applications");
     public Preferences Preferences { get; }
     public string? Warning { get; private set; }
     private bool preferencesPreserved = true;

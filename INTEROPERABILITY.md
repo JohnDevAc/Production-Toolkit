@@ -22,6 +22,8 @@ Live adapter/address availability is checked separately and shown in component d
 
 Toolkit launches independently released applications. It does not require local Job Configurator, KiloLink or Discovery to run on a client PC. Each component retains its own installer, repository, version and updater.
 
+UDP to NDI and Test Card Generator use their own GitHub release feeds and settings. UDP to NDI uses its official installer. Test Card Generator is a portable package: Toolkit retains its complete folder, worker and private .NET runtime, then records the launch path without starting the generator. FFmpeg and NDI Runtime dependencies remain with the respective product; adding these cards does not change fleet, server, endpoint or NDI configuration contracts.
+
 Environment status reads its schema-1 Client/Server role receipt plus actual local files and configuration. Client requires NDI Tools and configured PC Agent, with server components shown as not required. Combined hosts also display the Agent requirement. Server-only deployments do not require Agent. Reliable legacy client evidence can identify a client installation; shared NDI Tools alone leave the role unverified. Server removal retains shared tools without inventing a missing server deployment.
 
 Package preparation checks the actual required release asset using the downloader's HTTPS/proxy context, handles sources that reject HEAD, and rejects captive-portal HTML. Failures prevent installer launch and explain how to retry. Bounded stalled-read timeouts, existing checksum/product checks and archive safety still apply. A complete verified cache can be used offline; cached release metadata by itself is not an installable package.

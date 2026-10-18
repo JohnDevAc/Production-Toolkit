@@ -119,6 +119,7 @@ public sealed class AppCard(AppDefinition definition) : INotifyPropertyChanged
     public string DetailNote => NeedsPcAgentSetup ? SetupNotice : Definition.IsEnvironment ? "Open setup to install, update or repair environment components." :
         State == UpdateState.NewerInstalled ? "The selected release is older. Installing it will downgrade this application." :
         State == UpdateState.Unknown && Installed is not null ? "The installed version cannot be compared reliably." :
+        Definition.PackageKind == PackageKind.PortableZip ? "Portable app. NDI Runtime and FFmpeg are needed for network outputs." :
         Definition.PackageKind == PackageKind.ZipWithSetup ? "The complete ZIP is verified and unpacked before Setup opens." :
         "The application's own installer handles installation and updates.";
     private string activity = "";

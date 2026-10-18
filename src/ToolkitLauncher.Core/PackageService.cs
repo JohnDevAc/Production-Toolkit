@@ -68,6 +68,8 @@ public sealed class PackageService(HttpClient http, string root)
         }
         progress?.Report(new("Package verified", 95));
         if (app.PackageKind == PackageKind.Executable || !extract) return new(target, target);
+        if (app.PackageKind == PackageKind.PortableZip)
+            throw new InvalidOperationException("Portable packages must be installed with InstallPortableAsync.");
         // A fresh extraction prevents reuse of modified or incomplete extracted binaries.
         var extractDirectory = Path.Combine(directory, "package-" + Guid.NewGuid().ToString("N"));
         try
@@ -83,6 +85,30 @@ public sealed class PackageService(HttpClient http, string root)
             throw new InvalidDataException("The complete package does not contain a recognized setup program.");
         }
         catch { if (Directory.Exists(extractDirectory)) Directory.Delete(extractDirectory, true); throw; }
+    }
+
+    public async Task<string> InstallPortableAsync(AppDefinition app, ReleaseAsset asset, string applicationsRoot,
+        IProgress<TransferProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (app.PackageKind != PackageKind.PortableZip) throw new ArgumentException("This application is not portable.", nameof(app));
+        var package = await PrepareAsync(app, asset, progress, cancellationToken, extract: false);
+        // Each verified extraction gets a new folder. Updates never overwrite a running
+        // copy or delete the prior release; preferences switch only after validation.
+        var directory = Path.Combine(applicationsRoot, app.Id, "package-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            progress?.Report(new("Unpacking application…", 96));
+            await Task.Run(() => ExtractSafely(package.DownloadPath, directory, cancellationToken), cancellationToken);
+            var matches = app.ExecutableNames.SelectMany(name => Directory.GetFiles(directory, name, SearchOption.AllDirectories)).ToArray();
+            if (matches.Length != 1) throw new InvalidDataException("The portable package must contain one recognized application executable.");
+            var applicationDirectory = Path.GetDirectoryName(matches[0])!;
+            foreach (var required in app.RequiredPortableFiles)
+                if (!File.Exists(Path.Combine(applicationDirectory, required)))
+                    throw new InvalidDataException("The portable package is incomplete: " + required);
+            cancellationToken.ThrowIfCancellationRequested();
+            return matches[0];
+        }
+        catch { if (Directory.Exists(directory)) Directory.Delete(directory, true); throw; }
     }
 
     public static async Task<bool> VerifyAsync(string path, ReleaseAsset asset, CancellationToken cancellationToken)

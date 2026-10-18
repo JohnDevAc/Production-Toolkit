@@ -8,8 +8,10 @@ The application cards use the following original project icons, bundled on 6 Sep
 | `src/ToolkitLauncher/Assets/job.ico` | [NDI Job Configurator: wwwroot/NDIJobConfigurator.ico](https://github.com/JohnDevAc/Kiloview-Job-Configurator/blob/main/wwwroot/NDIJobConfigurator.ico) | [Project licence](https://github.com/JohnDevAc/Kiloview-Job-Configurator/blob/main/LICENSE.md) |
 | `src/ToolkitLauncher/Assets/resolume.ico` | [Resolume Arena Configurator: Assets/app-icon.ico](https://github.com/JohnDevAc/Resolume-Configurator/blob/main/src/ResolumeConfigurator/Assets/app-icon.ico) | [Project licence](https://github.com/JohnDevAc/Resolume-Configurator/blob/main/LICENSE) |
 | `src/ToolkitLauncher/Assets/pc-agent.ico` | [NDI Configurator PC Agent: assets/KiloviewSetup.ico](https://github.com/JohnDevAc/Kiloview-PC-Onboarding/blob/main/assets/KiloviewSetup.ico) | [Project licence](https://github.com/JohnDevAc/Kiloview-PC-Onboarding/blob/main/LICENSE.md) |
+| `src/ToolkitLauncher/Assets/udp-to-ndi.ico` | [UDP to NDI: assets/app.ico](https://github.com/JohnDevAc/udp-to-ndi/blob/v1.0.3/assets/app.ico) | [MIT licence](https://github.com/JohnDevAc/udp-to-ndi/blob/v1.0.3/LICENSE) |
+| `src/ToolkitLauncher/Assets/testcard.ico` | [TestCard: Assets/TestCard.ico](https://github.com/JohnDevAc/TestCardGen/blob/v1.0.0/src/TestCard.App/Assets/TestCard.ico) | [MIT licence](https://github.com/JohnDevAc/TestCardGen/blob/v1.0.0/LICENSE) |
 
-Upstream application copyright: John Lightfoot. The four applications and software they install retain their own licences and vendor agreements. Their executable packages are downloaded from GitHub on demand and are not redistributed inside this wrapper.
+UDP to NDI and TestCard icons were added on 18 October 2026 from the release tags above. Upstream application copyright: John Lightfoot. The six applications and software they install retain their own licences and vendor agreements. Their executable packages are downloaded from GitHub on demand and are not redistributed inside this wrapper.
 
 Kiloview, KiloLink, NDI and Resolume names and marks belong to their respective owners. Their use here identifies the applications; it does not imply vendor sponsorship or endorsement.
 
@@ -19,7 +21,7 @@ The original Production Toolkit mark is in `assets/toolkit.svg`, with its raster
 
 Setup and Uninstall are built with [Inno Setup](https://jrsoftware.org/), copyright © 1997–2026 Jordan Russell, with portions copyright © 2000–2026 Martijn Laan. Inno Setup's original embedded copyright notices and web addresses are retained. Its installer engine remains subject to the [Inno Setup licence](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt); Production Toolkit's proprietary licence applies to the toolkit itself.
 
-## Kiloview Environment Setup icon — MIT licence
+## Kiloview Environment Setup, UDP to NDI and TestCard icons — MIT licence
 
 Copyright (c) 2026 John Lightfoot
 

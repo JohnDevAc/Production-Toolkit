@@ -29,7 +29,7 @@ public sealed class GitHubClient
 
     public async Task<ReleaseSnapshot> GetReleasesAsync(AppDefinition app, CancellationToken cancellationToken, bool userRequested = false)
     {
-        // All five applications share this queue and the persisted rate-limit deadline.
+        // Toolkit and all managed applications share this queue and the persisted rate-limit deadline.
         await queue.WaitAsync(cancellationToken);
         try
         {

@@ -49,7 +49,7 @@ internal static partial class Program
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "settings.json"), """{"Channels":null,"LaunchPaths":{},"Setups":{}}""");
         var window = new MainWindow(folder, true);
-        try { Check(window.Cards.Count == 4 && window.Footer.Contains("preferences"), "Dashboard opens after semantic preference corruption and exposes recovery warning"); }
+        try { Check(window.Cards.Count == Catalog.Apps.Length && window.Footer.Contains("preferences"), "Dashboard opens after semantic preference corruption and exposes recovery warning"); }
         finally { window.Close(); }
     }
 

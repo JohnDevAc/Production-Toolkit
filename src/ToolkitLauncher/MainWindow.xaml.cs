@@ -41,12 +41,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get
         {
             var updates = Cards.Count(c => c.State == UpdateState.UpdateAvailable);
-            return $"4 applications  ·  {Cards.Count(c => c.HasInstallation)} detected  ·  {updates} update{(updates == 1 ? "" : "s")} available";
+            return $"{Cards.Count} applications  ·  {Cards.Count(c => c.HasInstallation)} detected  ·  {updates} update{(updates == 1 ? "" : "s")} available";
         }
     }
     public string Footer { get; private set; } = "";
     public bool PreviewMode { get; }
-    public void SetLayoutWidth(double width) { Columns = width < 1000 ? 1 : 2; Notify(nameof(Columns)); }
+    public void SetLayoutWidth(double width) { Columns = width < 1000 ? 1 : width < 1500 ? 2 : 3; Notify(nameof(Columns)); }
 
     public MainWindow() : this(null, false) { }
     public MainWindow(string? dataRoot, bool preview, bool checkOnStartup = true)
@@ -381,6 +381,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         card.Cancellation = cancellation;
         try
         {
+            if (card.Definition.PackageKind == PackageKind.PortableZip)
+            {
+                var progress = new Progress<TransferProgress>(p => { card.Activity = p.Message; card.Progress = p.Percent; });
+                var executable = await packages.InstallPortableAsync(card.Definition, asset!, local.ApplicationsRoot, progress, cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                card.Installed = new InstallationService(local).RegisterPortable(card.Definition, executable);
+                card.UpdateInstalledIcon(IconService.ReadInstalled(executable));
+                card.Progress = 100; card.Activity = ""; card.Recompute(); Notify(nameof(Summary));
+                return;
+            }
             var setupPath = card.ExistingSetupPath;
             if (existingSetup && card.Installed!.IsSavedSetup)
             {

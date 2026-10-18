@@ -15,6 +15,22 @@ public sealed record Installation(string Path, string? Version, bool IsSavedSetu
 
 public sealed class InstallationService(LocalState state)
 {
+    public Installation RegisterPortable(AppDefinition app, string executable)
+    {
+        if (app.PackageKind != PackageKind.PortableZip || !File.Exists(executable))
+            throw new InvalidDataException("The portable application is not ready.");
+        var previous = state.Preferences.LaunchPaths.GetValueOrDefault(app.Id);
+        state.Preferences.LaunchPaths[app.Id] = executable;
+        try { state.Save(); }
+        catch
+        {
+            if (previous is null) state.Preferences.LaunchPaths.Remove(app.Id);
+            else state.Preferences.LaunchPaths[app.Id] = previous;
+            throw;
+        }
+        return ReadInstallation(app, executable);
+    }
+
     public Installation? Find(AppDefinition app)
     {
         return Find(app, state.Preferences.LaunchPaths.GetValueOrDefault(app.Id), state.Preferences.Setups.GetValueOrDefault(app.Id));

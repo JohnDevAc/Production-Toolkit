@@ -2,13 +2,13 @@
 
 See [interoperability and setup readiness](INTEROPERABILITY.md) for client/server status and verified offline packages.
 
-A native Windows application for installing, updating and launching four production tools from JohnDevAc's GitHub releases.
+A native Windows application for installing, updating and launching six production tools from JohnDevAc's GitHub releases.
 
 **Copyright © 2026 John Lightfoot. All rights reserved. Proprietary software, free for non-commercial use.** Commercial use requires a separate written licence. Public source availability does not make this an open-source licence. See [LICENSE.md](LICENSE.md).
 
 ## Run
 
-Download **Production-Toolkit-1.3.7-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
+Download **Production-Toolkit-1.3.8-win-x64-Setup.exe** from the [latest release](https://github.com/JohnDevAc/Production-Toolkit/releases/latest) and run it. Setup installs Production Toolkit for your Windows account, creates desktop and Start menu shortcuts, and adds an entry to **Settings → Apps → Installed apps** with an uninstaller. The default location is `%LOCALAPPDATA%\Programs\Production Toolkit`; a custom location can be selected and will be reused by updates.
 
 The Windows x64 application is self-contained: no separate .NET installation, browser runtime, Python or Node.js is required. Production Toolkit installs and updates without administrator elevation; installers for the managed applications may request it. Users of the earlier portable releases should run this installer once and then use the installed shortcuts. Local builds are in `artifacts/release`; portable executable and ZIP downloads remain available as secondary options.
 
@@ -18,7 +18,7 @@ On startup, and when you select **Check for updates**, the toolkit checks its ow
 
 Setup asks the running installation to close gracefully once it is ready to replace its files. It retains the installation directory, settings and download/icon caches, replaces the executable, updates the same Windows app entry and shortcuts, and relaunches the installed version. A normal installer run also closes and relaunches an open copy. Active managed-app downloads and installers must finish or be cancelled before maintenance can proceed. Failed or cancelled setup attempts reopen the surviving version when Setup had closed it. Older installers are blocked from downgrading a newer app. Windows is never automatically rebooted.
 
-Uninstall through Windows **Installed apps** or the installed `unins000.exe`. Uninstall closes the toolkit and removes its program files, registration and shortcuts. Settings, caches and user-created files are retained. The four production applications managed by the toolkit remain independently installed.
+Uninstall through Windows **Installed apps** or the installed `unins000.exe`. Uninstall closes the toolkit and removes its program files, registration and shortcuts. Settings, caches and user-created files are retained. The six production applications managed by the toolkit remain independently installed.
 
 ## Application dashboard
 
@@ -42,6 +42,10 @@ The app reads installed versions, icons and release information on startup and d
 | NDI Job Configurator | [Kiloview-Job-Configurator](https://github.com/JohnDevAc/Kiloview-Job-Configurator) | Uses the official installer. Launch uses its installed PowerShell launcher to start the scheduled service and open the browser. Recognizes current and legacy installation paths. |
 | Resolume Arena Configurator | [Resolume-Configurator](https://github.com/JohnDevAc/Resolume-Configurator) | Uses the versioned Windows x64 Setup executable and launches the installed native app. |
 | NDI Configurator PC Agent | [Kiloview-PC-Onboarding](https://github.com/JohnDevAc/Kiloview-PC-Onboarding) | Downloads the complete self-contained ZIP, extracts the entire payload and runs its Setup executable. Launch starts the installed tray agent. Recognizes legacy Kiloview branding. |
+| UDP to NDI | [udp-to-ndi](https://github.com/JohnDevAc/udp-to-ndi) | Uses the official Windows x64 Setup executable. Detects its per-user installation and launches UDP to NDI. Its installer handles FFmpeg and NDI Runtime prerequisites. |
+| Test Card Generator | [TestCardGen](https://github.com/JohnDevAc/TestCardGen) | Verifies and extracts the complete portable ZIP, including its worker and private .NET runtime. Install prepares the app; Launch opens TestCard. NDI Runtime and FFmpeg are separate dependencies for network outputs. |
+
+Test Card Generator is stored in `%LOCALAPPDATA%\Production Toolkit\Applications\testcard`, separately from the download cache. Each install/update uses a new folder and saves its launch location only after the complete package is validated. Existing copies and TestCard's own settings in `%LOCALAPPDATA%\TestCardGen` are retained. Toolkit does not start TestCard or its outputs during installation. To remove a portable copy, close it and remove its complete package folder; Toolkit's next local check detects that it is absent. Portable copies are retained when Toolkit itself is uninstalled.
 
 PC Agent files alone do not mean setup is complete. The toolkit checks the current Windows account's saved agent configuration and the matching installed Setup utility. Missing, unreadable or invalid configuration shows **Setup incomplete** and offers **Complete setup**, even when the installed version is current. A complete matching local package can finish setup offline without another download. If Setup is missing or mismatched, the toolkit offers the complete selected release package; recovery does not downgrade a newer installed agent. Setup retains its normal licence, adapter selection and UAC flow. When it closes, the card rereads configuration before enabling **Launch**. A disconnected production adapter does not imply an incomplete installation.
 
@@ -64,7 +68,7 @@ Environment detection is read-only, runs only at startup or **Check for updates*
 - For the retained Environment Setup executable, a saved release tag is used only when its SHA-256 still matches that release. A newer persistent launcher takes precedence over an older saved setup; at equal versions the persistent launcher is preferred.
 - Successful installer exit alone is not proof of installation. The next startup or explicit update check rereads the actual local version. Failures and restart-required exit codes remain visible.
 - If GitHub is offline or rate-limited, saved release information remains available. The update-status tooltip gives its original check time and explains when the comparison uses a previous check. Previously installed applications remain launchable.
-- Rapid restarts reuse successful release checks for ten minutes. **Check for updates** can refresh sooner, but repeated clicks within one minute reuse the last result. Installed versions and icons are still read on startup and each explicit check. The toolkit's own release check uses the same cache and request queue as the four app cards.
+- Rapid restarts reuse successful release checks for ten minutes. **Check for updates** can refresh sooner, but repeated clicks within one minute reuse the last result. Installed versions and icons are still read on startup and each explicit check. The toolkit's own release check uses the same cache and request queue as the six app cards.
 - GitHub API requests run one at a time. A rate limit pauses all remaining API requests until GitHub's reset or `Retry-After` deadline; that deadline survives restarting the toolkit. Expiry never starts an automatic retry: reopen the toolkit or click **Check for updates** afterward. GitHub's unauthenticated allowance is shared by applications using the same public IP, so other software can still exhaust it. See [GitHub's rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
 
 ## Downloads and local data
@@ -75,7 +79,7 @@ Preferences, release snapshots, icon cache, the activity log and verified downlo
 %LOCALAPPDATA%\Production Toolkit
 ```
 
-Installers are fetched directly from the four projects' GitHub release URLs. Package size and GitHub's SHA-256 digest must match before an installer can run. Releases without a digest require manual installation via their Releases page. Downloads write to temporary files first; failures remove incomplete cache files. ZIP extraction rejects traversal, absolute paths, alternate streams, reserved Windows names, symlinks, duplicate paths and excessive extraction sizes.
+Installers are fetched directly from the six projects' GitHub release URLs. Package size and GitHub's SHA-256 digest must match before an installer can run. Releases without a digest require manual installation via their Releases page. Downloads write to temporary files first; failures remove incomplete cache files. ZIP extraction rejects traversal, absolute paths, alternate streams, reserved Windows names, symlinks, duplicate paths and excessive extraction sizes.
 
 Downloaded applications are not bundled into the wrapper. The internal cache is beneath the local data folder above. It can be cleared manually when no installer is running; clearing a retained Environment Setup executable also removes that saved launch target.
 
@@ -83,9 +87,9 @@ The executable is currently unsigned. Windows may show its standard publisher or
 
 ## UI and scaling
 
-The WPF application declares **Per-Monitor V2 DPI awareness**, uses logical pixel layouts, native controls, layout rounding and scalable typography. At startup it measures the complete UI, including the title bar and window borders, and chooses a size that shows all four cards without scrolling when the current monitor's work area allows. It tries a wider window when that reduces wrapping. It checks the size once more after loading release details, provided the user has not resized the window in the meantime.
+The WPF application declares **Per-Monitor V2 DPI awareness**, uses logical pixel layouts, native controls, layout rounding and scalable typography. At startup it measures the complete UI, including the title bar and window borders, and chooses a size that shows all six cards without scrolling when the current monitor's work area allows. It tries a wider window when that reduces wrapping. It checks the size once more after loading release details, provided the user has not resized the window in the meantime.
 
-On desktops too small to hold the complete UI, the window stays within the work area and retains vertical scrolling so every control remains accessible. The layout switches from two columns to one below 1,000 logical pixels. Buttons have keyboard focus states, text labels and standard tab navigation; status is conveyed with both text and colour. The footer identifies John Lightfoot's copyright and the non-commercial licence.
+On desktops too small to hold the complete UI, the window stays within the work area and retains vertical scrolling so every control remains accessible. The layout uses three columns at 1,500 logical pixels and above, two below 1,500, and one below 1,000. Buttons have keyboard focus states, text labels and standard tab navigation; status is conveyed with both text and colour. The footer identifies John Lightfoot's copyright and the non-commercial licence.
 
 Each application uses its own icon. At startup and during update checks, the toolkit extracts the current icon directly from the installed executable without launching it or relying on the Windows shell icon cache. If no installed icon is available, it retrieves the project icon at the selected release tag. HTTP ETags and an on-disk cache preserve working icons when offline; embedded upstream icons are the final fallback. Repository icon paths are listed in `Catalog.cs`; if a project moves an icon to a different path, the bundled fallback remains available until that mapping is updated.
 
@@ -119,7 +123,7 @@ Run tests and create review images:
 dotnet run --project .\tests\ToolkitLauncher.Tests -c Release -- --ui artifacts\ui-review
 ```
 
-Optional live icon check for the current stable and development releases of all four projects:
+Optional live icon check for the current stable and development releases of all six projects:
 
 ```powershell
 dotnet run --project .\tests\ToolkitLauncher.Tests -c Release -- --live-icons
