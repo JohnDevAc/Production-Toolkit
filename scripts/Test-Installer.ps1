@@ -11,6 +11,7 @@ $registryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $
 $desktopLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) ($testTitle + '.lnk')
 $startLink = Join-Path ([Environment]::GetFolderPath('Programs')) ($testTitle + '.lnk')
 $version = ([xml](Get-Content -LiteralPath (Join-Path $taskRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
+$numericVersion = ($version -split '-', 2)[0] + '.0'
 $compiler = & (Join-Path $PSScriptRoot 'Get-InnoSetup.ps1')
 $checks = 0
 $launchParameters = '--skip-startup-checks --isolated-test-state'
@@ -30,7 +31,8 @@ function Find-TestApp {
     return @(Get-Process -Name 'Production Toolkit' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $testExe })
 }
 function Compile-TestSetup([string]$buildVersion, [string]$payload) {
-    & $compiler /Qp ('/DLaunchParameters=' + $launchParameters) ('/DAppVersion=' + $buildVersion) ('/DAppIdentity=' + $testId) ('/DAppTitle=' + $testTitle) ('/DPublishDirectory=' + $payload) ('/DReleaseDirectory=' + $testPackages) (Join-Path $taskRoot 'installer\ProductionToolkit.iss')
+    $fileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $payload 'Production Toolkit.exe')).FileVersion
+    & $compiler /Qp ('/DLaunchParameters=' + $launchParameters) ('/DAppVersion=' + $buildVersion) ('/DAppFileVersion=' + $fileVersion) ('/DAppIdentity=' + $testId) ('/DAppTitle=' + $testTitle) ('/DPublishDirectory=' + $payload) ('/DReleaseDirectory=' + $testPackages) (Join-Path $taskRoot 'installer\ProductionToolkit.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Test installer compilation failed.' }
 }
 
@@ -62,7 +64,7 @@ try {
     Assert-Test ($duplicate.WaitForExit(10000)) 'Launching a shortcut again reuses the existing instance'
     $code = Run-Setup $newSetup ($common + @('/TOOLKITUPDATE=1', ('/LOG="' + (Join-Path $testRoot 'upgrade.log') + '"')))
     Assert-Test ($code -eq 0 -and $running.WaitForExit(10000)) 'Upgrade gracefully closes the running old version'
-    Assert-Test ((Get-Item -LiteralPath $testExe).VersionInfo.FileVersion -eq ($version + '.0')) 'Upgrade replaces the existing executable with the new version'
+    Assert-Test ((Get-Item -LiteralPath $testExe).VersionInfo.FileVersion -eq $numericVersion) 'Upgrade replaces the existing executable with the new version'
     Assert-Test ((Get-ItemProperty -LiteralPath $registryPath).DisplayVersion -eq $version) 'Upgrade updates the same Installed apps entry'
     Assert-Test ((Get-ItemProperty -LiteralPath $registryPath).InstallLocation.TrimEnd('\') -eq $installRoot) 'Upgrade retains the original installation folder'
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
@@ -76,7 +78,7 @@ try {
     do { $restarted = Find-TestApp; if ($restarted.Count -gt 0) { break }; Start-Sleep -Milliseconds 250 } while ([DateTime]::UtcNow -lt $deadline)
     Assert-Test ($restarted.Count -eq 1) 'A manually run installer relaunches the app exactly once'
     $code = Run-Setup $baselineSetup ($common + @(('/LOG="' + (Join-Path $testRoot 'downgrade.log') + '"')))
-    Assert-Test ($code -ne 0 -and (Get-Item -LiteralPath $testExe).VersionInfo.FileVersion -eq ($version + '.0')) 'An older installer cannot overwrite a newer app'
+    Assert-Test ($code -ne 0 -and (Get-Item -LiteralPath $testExe).VersionInfo.FileVersion -eq $numericVersion) 'An older installer cannot overwrite a newer app'
     $code = Run-Setup (Join-Path $installRoot 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + (Join-Path $testRoot 'uninstall.log') + '"'))
     Assert-Test ($code -eq 0 -and -not (Test-Path -LiteralPath $testExe)) 'Uninstall closes the running app and removes its executable'
     Assert-Test (-not (Test-Path -LiteralPath $registryPath)) 'Uninstall removes the Windows Installed apps entry'

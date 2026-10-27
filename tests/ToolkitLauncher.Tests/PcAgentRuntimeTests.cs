@@ -122,7 +122,9 @@ internal static partial class Program
                 "Agent exit restores Launch without a release check");
             File.Delete(stop);
             Complete((Task)launch.Invoke(window, [card])!);
-            Check(SpinWait.SpinUntil(() => CountStarts(marker) == 2, 5000)
+            var observedStarts = SpinWait.SpinUntil(() => CountStarts(marker) == 2, 5000);
+            Console.WriteLine($"Agent launch evidence: starts={CountStarts(marker)} running={card.Installed?.PcAgentRunning} canLaunch={card.CanLaunch} needsSetup={card.NeedsPcAgentSetup} activity={card.Activity}");
+            Check(observedStarts
                 && card.PcAgentRunning && !card.CanLaunch,
                 "Toolkit launch immediately refreshes the agent's running state");
             Check(ReferenceEquals(releases, card.Snapshot) && card.Offline,

@@ -21,8 +21,12 @@ public sealed class SelfUpdateService(GitHubClient github, HttpClient downloadHt
 
     public static void ValidateInstallerVersion(string path, string releaseTag)
     {
-        var actual = AppVersion.Parse(FileVersionInfo.GetVersionInfo(path).FileVersion);
-        if (actual is null || actual.CompareTo(AppVersion.Parse(releaseTag)) != 0)
+        var metadata = FileVersionInfo.GetVersionInfo(path);
+        var expected = AppVersion.Parse(releaseTag);
+        var actual = AppVersion.Parse(metadata.ProductVersion);
+        var numeric = AppVersion.Parse(metadata.FileVersion);
+        if (expected is null || actual is null || numeric is null || actual.CompareTo(expected) != 0 ||
+            numeric.IsPrerelease || numeric.CompareTo(expected with { Pre = null }) != 0)
             throw new InvalidDataException("The verified installer does not contain the expected toolkit version.");
     }
 

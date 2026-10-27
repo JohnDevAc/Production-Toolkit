@@ -9,6 +9,8 @@ public sealed record AppDefinition(string Id, string Name, string Subtitle, stri
     string[] KnownPaths, string[] RegistryNames)
 {
     public string[] RequiredPortableFiles { get; init; } = [];
+    public string[] MaintenanceDirectories { get; init; } = [];
+    public string[] LifecycleAssetPatterns { get; init; } = [];
     public string RepositoryUrl => $"https://github.com/JohnDevAc/{Repository}";
     public string RepositoryIconPath => Id switch
     {
@@ -31,7 +33,9 @@ public static class Catalog
             "Kiloview-Environment-Setup", "\uE968", "#267E76",
             [@"^Kiloview-Environment-Setup\.exe$"], PackageKind.Executable, [],
             ["Kiloview-Environment-Setup.exe"],
-            [@"%ProgramData%\KiloLink\Launcher\Kiloview-Environment-Setup.exe"], []),
+            [@"%ProgramFiles%\Kiloview\Environment Setup\Kiloview-Environment-Setup.exe",
+             @"%ProgramData%\KiloLink\Launcher\Kiloview-Environment-Setup.exe"], ["Kiloview Configuration"])
+        { LifecycleAssetPatterns = [@"^Kiloview-Environment-Setup-Lifecycle\.zip$"], MaintenanceDirectories = [@"%ProgramData%\KiloLink\Maintenance"] },
         new("job", "NDI Job Configurator", "KILOVIEW JOB CONFIGURATOR",
             "Discover devices, configure your job and monitor the production network.",
             "Kiloview-Job-Configurator", "\uE8F1", "#4864CC",
@@ -39,14 +43,16 @@ public static class Catalog
             PackageKind.Executable, [], ["NDIJobConfigurator.exe", "KiloviewSetup.exe"],
             [@"%LOCALAPPDATA%\Programs\NDI Job Configurator\NDIJobConfigurator.exe",
              @"%LOCALAPPDATA%\Programs\Kiloview Setup\KiloviewSetup.exe"],
-            ["NDI Job Configurator", "Kiloview Job Configurator", "Kiloview Setup"]),
+            ["NDI Job Configurator", "Kiloview Job Configurator", "Kiloview Setup"])
+        { LifecycleAssetPatterns = [@"^NDI-Job-Configurator-Windows\.zip$"] },
         new("resolume", "Resolume Arena Configurator", "RESOLUME WORKSPACES",
             "Build Arena compositions and outputs from your NDI Job Configurator fleet.",
             "Resolume-Configurator", "\uE714", "#8960BB",
             [@"^Resolume-Arena-Configurator-.+-win-x64-Setup\.exe$"],
             PackageKind.Executable, [], ["Resolume Arena Configurator.exe"],
             [@"%LOCALAPPDATA%\Programs\Resolume Arena Configurator\Resolume Arena Configurator.exe"],
-            ["Resolume Arena Configurator"]),
+            ["Resolume Arena Configurator"])
+        { MaintenanceDirectories = [@"%LOCALAPPDATA%\Resolume Arena Configurator\Maintenance"], LifecycleAssetPatterns = [@"^Resolume-Arena-Configurator-v.+-win-x64\.zip$"] },
         new("pc-agent", "NDI Configurator PC Agent", "KILOVIEW PC ONBOARDING",
             "Install the Windows tray agent for remote onboarding and endpoint monitoring.",
             "Kiloview-PC-Onboarding", "\uE7F4", "#B47829",

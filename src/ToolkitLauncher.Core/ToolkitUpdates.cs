@@ -5,12 +5,13 @@ public sealed record ToolkitUpdate(Release Release, ReleaseAsset Installer);
 public static class ToolkitUpdates
 {
     public static readonly AppDefinition Application = new("toolkit", "Production Toolkit", "", "", "Production-Toolkit", "", "",
-        [@"^Production-Toolkit-[0-9.]+-win-x64-Setup\.exe$"], PackageKind.Executable, [], ["Production Toolkit.exe"], [], []);
+        [@"^Production-Toolkit-[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z.-]+)?-win-x64-Setup\.exe$"], PackageKind.Executable, [], ["Production Toolkit.exe"], [], []);
 
     public static ToolkitUpdate? Available(string currentVersion, IEnumerable<Release> releases)
     {
         var current = AppVersion.Parse(currentVersion) ?? throw new InvalidDataException("The toolkit version cannot be read.");
-        var newer = releases.Where(r => !r.Draft && !r.IsDevelopment && AppVersion.Parse(r.Tag)?.CompareTo(current) > 0)
+        var newer = releases.Where(r => !r.Draft && r.IsDevelopment == current.IsPrerelease &&
+                AppVersion.Parse(r.Tag) is { } version && version.IsPrerelease == current.IsPrerelease && version.CompareTo(current) > 0)
             .OrderByDescending(r => AppVersion.Parse(r.Tag));
         foreach (var release in newer)
         {

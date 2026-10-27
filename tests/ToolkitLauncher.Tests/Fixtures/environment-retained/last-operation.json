@@ -1,0 +1,35 @@
+{
+    "schemaVersion":  1,
+    "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+    "action":  "Uninstall",
+    "productVersion":  "3.1.0",
+    "policy":  "latest-stable",
+    "ownerSid":  "S-1-5-21-1000000001-1000000002-1000000003-1001",
+    "startedUtc":  "2026-10-27T09:40:56.0703422Z",
+    "updatedUtc":  "2026-10-27T09:41:48.4506173Z",
+    "outcome":  "Completed",
+    "desired":  {
+                    "SchemaVersion":  1,
+                    "PrimaryInterfaceAlias":  "Ethernet",
+                    "PublicIp":  "192.0.2.20",
+                    "WebPort":  80,
+                    "LinkPort":  50000,
+                    "NdiDiscoveryPort":  5959,
+                    "DistroName":  "KiloLink-Ubuntu",
+                    "LinuxDataPath":  "/opt/kilolink-server",
+                    "KiloLinkImage":  "kiloview/klnk-pro:latest",
+                    "UpdatedAt":  "2026-10-27T08:20:38.3479099+00:00"
+                },
+    "steps":  [
+                  {
+                      "name":  "Stop Server watchdogs",
+                      "state":  "Completed",
+                      "startedUtc":  "2026-10-27T09:40:58.6480874Z",
+                      "finishedUtc":  "2026-10-27T09:41:23.6529887Z",
+                      "error":  null
+                  }
+              ],
+    "mutationStarted":  true,
+    "attempt":  1,
+    "recoveryRequired":  false
+}

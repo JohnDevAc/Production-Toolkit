@@ -1,7 +1,7 @@
 name: Build Windows application
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -63,4 +63,6 @@ jobs:
           notes="docs/releases/${GITHUB_REF_NAME}.md"
           test -f "$notes"
           pwsh -File scripts/Test-Release.ps1 -ReleaseDirectory release
-          gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Production Toolkit ${GITHUB_REF_NAME}" --notes-file "$notes"
+          channel_flags=(--latest)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then channel_flags=(--prerelease --latest=false); fi
+          gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Production Toolkit ${GITHUB_REF_NAME}" --notes-file "$notes" "${channel_flags[@]}"

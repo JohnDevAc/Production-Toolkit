@@ -72,7 +72,7 @@ internal static partial class Program
         var persistent = Compile("persistent", "2.1.5");
         var download = Compile("download", "2.1.6");
         var setup = new SetupRecord(download, "v2.1.6", "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(download))));
-        var definition = Catalog.Apps[0] with { KnownPaths = [persistent], RegistryNames = [] };
+        var definition = Catalog.Apps[0] with { KnownPaths = [persistent], RegistryNames = [], MaintenanceDirectories = [] };
         var release = Release("v2.1.6");
         release.Assets = [new() { Name = "Kiloview-Environment-Setup.exe", Size = new FileInfo(download).Length }];
         var card = new AppCard(definition) { Installed = InstallationService.Find(definition, null, setup),

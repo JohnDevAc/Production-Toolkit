@@ -1,0 +1,230 @@
+{
+    "capturedUtc":  "2026-10-27T09:43:20.4606703Z",
+    "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+    "directory":  "C:\\Users\\User\\AppData\\Local\\Production Toolkit\\Operations\\7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+    "request":  {
+                    "schemaVersion":  1,
+                    "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+                    "productId":  "environment",
+                    "action":  "uninstall",
+                    "resultPath":  "C:\\Users\\User\\AppData\\Local\\Production Toolkit\\Operations\\7dbc220c-fe4d-404a-b13d-48c556b27d9a\\result.json",
+                    "preserveData":  true
+                },
+    "result":  {
+                   "partialEffects":  [
+                                          "Server role removal started; ownership retained until postconditions pass.",
+                                          "Environment server role record updated."
+                                      ],
+                   "logPath":  "C:\\ProgramData\\KiloLink\\installer.log",
+                   "journalPath":  "C:\\ProgramData\\KiloLink\\Operations\\7dbc220c-fe4d-404a-b13d-48c556b27d9a.json",
+                   "safeToCancel":  false,
+                   "components":  [
+                                      {
+                                          "productId":  "environment",
+                                          "installed":  true,
+                                          "configurationAppInstalled":  true,
+                                          "configured":  null,
+                                          "running":  null,
+                                          "healthy":  null,
+                                          "version":  "3.1.0.0",
+                                          "channel":  null,
+                                          "inspectionVersion":  "3.1.0",
+                                          "inspectionChannel":  "development"
+                                      },
+                                      {
+                                          "productId":  "ndi-tools",
+                                          "installed":  true,
+                                          "configured":  null,
+                                          "running":  null,
+                                          "healthy":  null,
+                                          "version":  "6.3.2.0",
+                                          "channel":  "vendor-stable"
+                                      },
+                                      {
+                                          "productId":  "ndi-discovery",
+                                          "installed":  true,
+                                          "configured":  false,
+                                          "running":  false,
+                                          "healthy":  false,
+                                          "version":  "6.3.2.0"
+                                      },
+                                      {
+                                          "productId":  "kilolink",
+                                          "installed":  null,
+                                          "configured":  false,
+                                          "running":  null,
+                                          "healthy":  null,
+                                          "version":  null,
+                                          "retainedEnvironment":  true,
+                                          "roleActive":  false,
+                                          "distroRegistered":  true,
+                                          "inspection":  "Runtime state was not probed; inspection never starts WSL."
+                                      },
+                                      {
+                                          "productId":  "pc-agent",
+                                          "installed":  false,
+                                          "version":  null,
+                                          "setupVersion":  null,
+                                          "configured":  false,
+                                          "running":  false,
+                                          "healthy":  null,
+                                          "onboarded":  null,
+                                          "channel":  "stable",
+                                          "inspection":  "Legacy local evidence; onboarding/health require the Agent-owned lifecycle descriptor."
+                                      }
+                                  ],
+                   "recoveryRequired":  false,
+                   "schemaVersion":  1,
+                   "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+                   "productId":  "environment",
+                   "action":  "uninstall",
+                   "outcome":  "succeeded",
+                   "updatedUtc":  "2026-10-27T09:41:50.8746600Z",
+                   "message":  "Server services removed and role inactive. KiloLink data and dedicated Linux environment (including disk footprint) are retained; see retained-server.json for recovery.",
+                   "attempt":  1,
+                   "stage":  "Stop Server watchdogs",
+                   "errorCode":  "",
+                   "nextAction":  "",
+                   "restartRequired":  false
+               },
+    "journal":  {
+                    "request":  {
+                                    "schemaVersion":  1,
+                                    "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+                                    "productId":  "environment",
+                                    "action":  "uninstall",
+                                    "resultPath":  "C:\\Users\\User\\AppData\\Local\\Production Toolkit\\Operations\\7dbc220c-fe4d-404a-b13d-48c556b27d9a\\result.json",
+                                    "preserveData":  true
+                                },
+                    "createdUtc":  "2026-10-27T09:40:03.8760357+00:00",
+                    "transport":  "protocol",
+                    "entryPoint":  "C:\\Program Files\\Kiloview\\Environment Setup\\Kiloview-Environment-Setup.exe",
+                    "capabilityRoot":  "C:\\Program Files\\Kiloview\\Environment Setup",
+                    "descriptorHash":  "70912921FB642CFFE68448674B2EA7BA255D7B14C6C60D8232FA8F1FE4547C6E",
+                    "entryPointHash":  "DDFF87AF9F28E1DC53406F25783D6A684C44996DD9E4710854D706581823FAA5",
+                    "processId":  7236,
+                    "processStartedUtc":  "2026-10-27T09:40:06.0317558+00:00",
+                    "exitCode":  0,
+                    "processActive":  false,
+                    "exitUnconfirmed":  false,
+                    "result":  {
+                                   "schemaVersion":  1,
+                                   "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+                                   "productId":  "environment",
+                                   "action":  "uninstall",
+                                   "outcome":  "succeeded",
+                                   "updatedUtc":  "2026-10-27T09:41:50.87466+00:00",
+                                   "message":  "Server services removed and role inactive. KiloLink data and dedicated Linux environment (including disk footprint) are retained; see retained-server.json for recovery.",
+                                   "attempt":  1,
+                                   "stage":  "Stop Server watchdogs",
+                                   "errorCode":  "",
+                                   "nextAction":  "",
+                                   "logPath":  "C:\\ProgramData\\KiloLink\\installer.log",
+                                   "safeToCancel":  false,
+                                   "restartRequired":  false,
+                                   "recoveryRequired":  false,
+                                   "partialEffects":  [
+                                                          "Server role removal started; ownership retained until postconditions pass.",
+                                                          "Environment server role record updated."
+                                                      ],
+                                   "components":  [
+                                                      {
+                                                          "productId":  "environment",
+                                                          "installed":  true,
+                                                          "configurationAppInstalled":  true,
+                                                          "configured":  null,
+                                                          "running":  null,
+                                                          "healthy":  null,
+                                                          "version":  "3.1.0.0",
+                                                          "channel":  null,
+                                                          "inspectionVersion":  "3.1.0",
+                                                          "inspectionChannel":  "development"
+                                                      },
+                                                      {
+                                                          "productId":  "ndi-tools",
+                                                          "installed":  true,
+                                                          "configured":  null,
+                                                          "running":  null,
+                                                          "healthy":  null,
+                                                          "version":  "6.3.2.0",
+                                                          "channel":  "vendor-stable"
+                                                      },
+                                                      {
+                                                          "productId":  "ndi-discovery",
+                                                          "installed":  true,
+                                                          "configured":  false,
+                                                          "running":  false,
+                                                          "healthy":  false,
+                                                          "version":  "6.3.2.0"
+                                                      },
+                                                      {
+                                                          "productId":  "kilolink",
+                                                          "installed":  null,
+                                                          "configured":  false,
+                                                          "running":  null,
+                                                          "healthy":  null,
+                                                          "version":  null,
+                                                          "retainedEnvironment":  true,
+                                                          "roleActive":  false,
+                                                          "distroRegistered":  true,
+                                                          "inspection":  "Runtime state was not probed; inspection never starts WSL."
+                                                      },
+                                                      {
+                                                          "productId":  "pc-agent",
+                                                          "installed":  false,
+                                                          "version":  null,
+                                                          "setupVersion":  null,
+                                                          "configured":  false,
+                                                          "running":  false,
+                                                          "healthy":  null,
+                                                          "onboarded":  null,
+                                                          "channel":  "stable",
+                                                          "inspection":  "Legacy local evidence; onboarding/health require the Agent-owned lifecycle descriptor."
+                                                      }
+                                                  ]
+                               },
+                    "problem":  "",
+                    "finished":  true,
+                    "requiresReview":  false,
+                    "pending":  false,
+                    "message":  "Server services removed and role inactive. KiloLink data and dedicated Linux environment (including disk footprint) are retained; see retained-server.json for recovery."
+                },
+    "owner":  {
+                  "schemaVersion":  1,
+                  "operationId":  "7dbc220c-fe4d-404a-b13d-48c556b27d9a",
+                  "action":  "Uninstall",
+                  "productVersion":  "3.1.0",
+                  "policy":  "latest-stable",
+                  "ownerSid":  "S-1-5-21-1000000001-1000000002-1000000003-1001",
+                  "startedUtc":  "2026-10-27T09:40:56.0703422Z",
+                  "updatedUtc":  "2026-10-27T09:41:48.4506173Z",
+                  "outcome":  "Completed",
+                  "desired":  {
+                                  "SchemaVersion":  1,
+                                  "PrimaryInterfaceAlias":  "Ethernet",
+                                  "PublicIp":  "192.0.2.20",
+                                  "WebPort":  80,
+                                  "LinkPort":  50000,
+                                  "NdiDiscoveryPort":  5959,
+                                  "DistroName":  "KiloLink-Ubuntu",
+                                  "LinuxDataPath":  "/opt/kilolink-server",
+                                  "KiloLinkImage":  "kiloview/klnk-pro:latest",
+                                  "UpdatedAt":  "2026-10-27T08:20:38.3479099+00:00"
+                              },
+                  "steps":  [
+                                {
+                                    "name":  "Stop Server watchdogs",
+                                    "state":  "Completed",
+                                    "startedUtc":  "2026-10-27T09:40:58.6480874Z",
+                                    "finishedUtc":  "2026-10-27T09:41:23.6529887Z",
+                                    "error":  null
+                                }
+                            ],
+                  "mutationStarted":  true,
+                  "attempt":  1,
+                  "recoveryRequired":  false
+              },
+    "processes":  [
+
+                  ]
+}

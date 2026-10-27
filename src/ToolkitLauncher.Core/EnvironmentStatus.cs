@@ -1,13 +1,21 @@
+using System.Text.Json;
+
 namespace ToolkitLauncher.Core;
 
-public enum EnvironmentInstallationState { NotInstalled, Partial, Full, Unknown }
+public enum EnvironmentInstallationState { NotInstalled, Partial, Full, Unknown, Inactive }
 
 public sealed class EnvironmentEvidence
 {
     public string[]? Roles { get; set; }
     public bool ComponentReceiptInvalid { get; set; }
+    public JsonElement? ComponentReceipt { get; set; }
+    public JsonElement? RetainedServerRecord { get; set; }
+    public string? CurrentUserSid { get; set; }
+    public string? DistroName { get; set; }
+    public bool? ServerRecoveryPending { get; set; }
     public bool? PcAgent { get; set; }
     public bool? PcAgentConfigured { get; set; }
+    public string? PcAgentSetupDetail { get; set; }
     public PcAgentConfiguration? PcAgentConfiguration { get; set; }
     public bool? PcAgentNetworkAvailable { get; set; }
     public bool? Configuration { get; set; }
@@ -23,6 +31,7 @@ public sealed class EnvironmentEvidence
     public bool? NdiTools { get; set; }
     public string? NdiVersion { get; set; }
     public bool? Discovery { get; set; }
+    public bool? DiscoveryConfigured { get; set; }
     public bool? DiscoveryRunning { get; set; }
     public bool? DiscoveryListening { get; set; }
     public bool RestartPending { get; set; }
@@ -34,11 +43,13 @@ public sealed record EnvironmentComponent(string Name, string Status, string Det
 public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, List<EnvironmentComponent> Components,
     DateTimeOffset CheckedAt, string Detail, bool AnyInstalled)
 {
+    public string RoleLabel { get; init; } = "Environment";
     public string Status => State switch
     {
         EnvironmentInstallationState.Full => "Installed fully",
         EnvironmentInstallationState.Partial => "Installed partially",
         EnvironmentInstallationState.NotInstalled => "Not installed",
+        EnvironmentInstallationState.Inactive => "Inactive · data retained",
         _ => "Installation not verified"
     };
     public string Colour => State == EnvironmentInstallationState.Full ? "#24735B" :
@@ -51,8 +62,8 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
                 [new("Deployment role", "Not verified", "The saved component receipt is unreadable or unsupported. Review Environment Setup and restore compatible ownership information.")],
                 checkedAt, "Deployment completeness cannot be determined from an invalid component receipt.",
                 evidence.NdiTools == true || evidence.PcAgent == true || evidence.Configuration == true || evidence.Distro == true);
-        if (evidence.PcAgentConfiguration is not null) evidence.PcAgentConfigured = evidence.PcAgentConfiguration.IsValid;
-        var agentNetwork = evidence.PcAgentConfigured != true ? "Local production adapter configuration is required."
+        if (evidence.PcAgentConfiguration is not null) evidence.PcAgentConfigured = evidence.PcAgentConfigured != false && evidence.PcAgentConfiguration.IsValid;
+        var agentNetwork = evidence.PcAgentConfigured != true ? evidence.PcAgentSetupDetail ?? "Local production adapter configuration is required."
             : evidence.PcAgentNetworkAvailable == true ? "Production adapter and saved address are available."
             : evidence.PcAgentNetworkAvailable == false ? "Production adapter or saved address is unavailable. Connect the adapter or refresh PC Agent."
             : "Production adapter availability has not been verified.";
@@ -60,6 +71,16 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
             || evidence.Roles is null && evidence.Configuration == false && evidence.Distro == false
                 && evidence.Watchdog == false && evidence.PcAgent == true;
         var server = evidence.Roles?.Contains("server") == true || evidence.Configuration == true;
+        var retainedServer = HasInactiveServer(evidence);
+        var retainedComponent = new EnvironmentComponent("KiloLink Server Pro", "Inactive · data retained",
+            "Server services were removed. KiloLink data and the Linux environment are retained. Open setup to configure a role.");
+        if (retainedServer && !client)
+            return new(EnvironmentInstallationState.Inactive,
+            [
+                retainedComponent,
+                new("NDI Tools", evidence.NdiTools == true ? "Installed · shared runtime" : evidence.NdiTools == false ? "Not installed" : "Not verified", evidence.NdiVersion ?? ""),
+                new("NDI Discovery", "Inactive", "Server Discovery is not configured or running.")
+            ], checkedAt, "Server role inactive. Data and the Linux environment are retained.", true) { RoleLabel = "Server" };
         if (!client && !server && evidence.Configuration == false && evidence.Distro == false && evidence.Watchdog == false
             && (evidence.NdiTools == true || evidence.PcAgent == true))
         {
@@ -81,8 +102,8 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
             [
                 new("NDI Tools", evidence.NdiTools == true ? "Installed" : evidence.NdiTools == false ? "Not installed" : "Not verified", evidence.NdiVersion ?? ""),
                 new("PC Agent", evidence.PcAgent != true ? "Not installed / not verified" : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required", agentNetwork),
-                new("Server components", "Not required", "Client deployment uses remote Job Configurator, KiloLink and Discovery as configured.")
-            ], checkedAt, "Client deployment. " + evidence.Note, evidence.NdiTools == true || evidence.PcAgent == true);
+                retainedServer ? retainedComponent : new("Server components", "Not required", "Client deployment uses remote Job Configurator, KiloLink and Discovery as configured.")
+            ], checkedAt, "Client deployment. " + evidence.Note, evidence.NdiTools == true || evidence.PcAgent == true) { RoleLabel = "Client" };
         }
         var required = new[] { evidence.Configuration, evidence.Distro, evidence.Container, evidence.Watchdog, evidence.NdiTools, evidence.Discovery };
         if (client) required = required.Concat(new[] { evidence.PcAgent, evidence.PcAgentConfigured }).ToArray();
@@ -122,6 +143,27 @@ public sealed record EnvironmentSnapshot(EnvironmentInstallationState State, Lis
             .. client ? new[] { new EnvironmentComponent("PC Agent", evidence.PcAgent != true ? "Not installed / not verified"
                 : evidence.PcAgentConfigured == true ? "Installed · configured" : "Installed · setup required",
                 "Required by the selected Client role on this combined host. " + agentNetwork) } : Array.Empty<EnvironmentComponent>()
-        ], checkedAt, string.Join("\n", notes), any);
+        ], checkedAt, string.Join("\n", notes), any) { RoleLabel = client ? "Client + Server" : server ? "Server" : "Environment" };
+    }
+
+    private static bool HasInactiveServer(EnvironmentEvidence evidence)
+    {
+        // Current owner records establish intent, never a stale successful operation.
+        // Missing/contradictory records and a pending recovery must retain normal guards.
+        if (evidence.Roles is null || evidence.Roles.Contains("server") || evidence.Configuration != false ||
+            evidence.Distro != true || evidence.Watchdog != false || evidence.WatchdogRunning == true ||
+            evidence.ContainerRunning == true || evidence.WebResponding == true || evidence.DiscoveryConfigured != false || evidence.DiscoveryRunning != false ||
+            evidence.DiscoveryListening == true || evidence.RestartPending || evidence.ServerRecoveryPending != false ||
+            string.IsNullOrWhiteSpace(evidence.CurrentUserSid) || string.IsNullOrWhiteSpace(evidence.DistroName) ||
+            evidence.ComponentReceipt is not { ValueKind: JsonValueKind.Object } receipt ||
+            evidence.RetainedServerRecord is not { ValueKind: JsonValueKind.Object } retained) return false;
+        static bool Is(JsonElement item, string name, JsonValueKind kind) => item.TryGetProperty(name, out var value) && value.ValueKind == kind;
+        static string? Text(JsonElement item, string name) => item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        static bool SchemaOne(JsonElement item) => item.TryGetProperty("schemaVersion", out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var version) && version == 1;
+        if (!SchemaOne(receipt) || !SchemaOne(retained) || !Is(receipt, "retainedServer", JsonValueKind.True) || !Is(retained, "active", JsonValueKind.False) ||
+            Text(receipt, "serverOwnerSid") != evidence.CurrentUserSid || Text(retained, "serverOwnerSid") != evidence.CurrentUserSid ||
+            Text(retained, "distro") != evidence.DistroName || !receipt.TryGetProperty("roles", out var roles) || roles.ValueKind != JsonValueKind.Array) return false;
+        var recordedRoles = roles.EnumerateArray().Select(r => r.ValueKind == JsonValueKind.String ? r.GetString() : null).ToArray();
+        return recordedRoles.All(r => r is "client") && recordedRoles.Length <= 1 && recordedRoles.SequenceEqual(evidence.Roles);
     }
 }

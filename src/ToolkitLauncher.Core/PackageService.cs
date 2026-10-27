@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -5,7 +6,11 @@ using System.Text.RegularExpressions;
 namespace ToolkitLauncher.Core;
 
 public sealed record TransferProgress(string Message, double Percent);
-public sealed record PreparedPackage(string DownloadPath, string SetupPath);
+public sealed record PreparedPackage(string DownloadPath, string SetupPath)
+{
+    public LifecycleCapabilities? Capabilities { get; init; }
+    public string? PayloadVersion { get; init; }
+}
 
 public sealed class PackageService(HttpClient http, string root)
 {
@@ -29,6 +34,7 @@ public sealed class PackageService(HttpClient http, string root)
         ValidateSource(app, asset);
         var digest = asset.Digest![7..].ToLowerInvariant();
         var directory = Path.Combine(root, app.Id, digest);
+        OwnedPaths.CheckNoReparse(directory);
         Directory.CreateDirectory(directory);
         var target = Path.Combine(directory, asset.Name);
         if (!File.Exists(target) || !await VerifyAsync(target, asset, cancellationToken))
@@ -71,7 +77,7 @@ public sealed class PackageService(HttpClient http, string root)
         if (app.PackageKind == PackageKind.PortableZip)
             throw new InvalidOperationException("Portable packages must be installed with InstallPortableAsync.");
         // A fresh extraction prevents reuse of modified or incomplete extracted binaries.
-        var extractDirectory = Path.Combine(directory, "package-" + Guid.NewGuid().ToString("N"));
+        var extractDirectory = PreparedDirectory(app);
         try
         {
             progress?.Report(new("Unpacking complete setup package…", 96));
@@ -111,6 +117,82 @@ public sealed class PackageService(HttpClient http, string root)
         catch { if (Directory.Exists(directory)) Directory.Delete(directory, true); throw; }
     }
 
+    public async Task<PreparedPackage> PrepareManagedAsync(AppDefinition app, Release release, string action,
+        IProgress<TransferProgress>? progress, CancellationToken cancellationToken)
+    {
+        var asset = ReleaseSelection.ManagedPackage(app, release) ?? throw new InvalidOperationException("No supported package in this release.");
+        var downloaded = await PrepareAsync(app, asset, progress, cancellationToken, extract: false);
+        if (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            var directory = PreparedDirectory(app);
+            try
+            {
+                await Task.Run(() => ExtractSafely(downloaded.DownloadPath, directory, cancellationToken), cancellationToken);
+                var descriptorPath = Path.Combine(directory, "toolbox-lifecycle.json");
+                if (!File.Exists(descriptorPath))
+                {
+                    var wrappers = Directory.GetDirectories(directory);
+                    descriptorPath = wrappers.Length == 1 ? Path.Combine(wrappers[0], "toolbox-lifecycle.json") : "";
+                }
+                // Companion products and retained maintenance may have independent nested
+                // descriptors. Only this package's root (or sole wrapper root) is authoritative.
+                if (File.Exists(descriptorPath))
+                {
+                    var capabilities = LifecycleCapabilities.Load(Path.GetDirectoryName(descriptorPath)!, app.Id)!;
+                    return new(downloaded.DownloadPath, capabilities.ResolveEntry(action).Path)
+                    { Capabilities = capabilities, PayloadVersion = ReadPayloadVersion(app, capabilities, action) };
+                }
+                if (Directory.GetFiles(directory, "toolbox-lifecycle.json", SearchOption.AllDirectories)
+                    .Any(path => OwnedPaths.Read<LifecycleCapabilities>(path).ProductId == app.Id))
+                    throw new InvalidDataException("Package has no unambiguous top-level lifecycle descriptor.");
+                var matches = app.SetupNames.SelectMany(name => Directory.GetFiles(directory, name, SearchOption.AllDirectories)).ToArray();
+                if (matches.Length == 1) return new(downloaded.DownloadPath, matches[0]);
+                if (matches.Length > 1) throw new InvalidDataException("Package contains ambiguous legacy setup executables.");
+                // ZIP filenames predate lifecycle v1. Absent metadata is a legacy
+                // release, not an invalid protocol advertisement; verify its official EXE.
+                var legacy = ReleaseSelection.Installer(app, release);
+                if (legacy is not null && legacy.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    return await PrepareManagedAsync(app with { LifecycleAssetPatterns = [] }, release, action, progress, cancellationToken);
+                throw new InvalidDataException("This package has no supported maintenance entry point. Open the project's releases.");
+            }
+            catch { if (Directory.Exists(directory)) Directory.Delete(directory, true); throw; }
+        }
+        var descriptorAssets = release.Assets.Where(a => a.Name == "toolbox-lifecycle.json").ToArray();
+        if (descriptorAssets.Length == 0) return downloaded;
+        if (descriptorAssets.Length != 1) throw new InvalidDataException("Release has ambiguous capability metadata.");
+        var descriptorAsset = descriptorAssets[0];
+        if (descriptorAsset.Size > 1024 * 1024) throw new InvalidDataException("Capability metadata exceeds its size limit.");
+        var metadata = await PrepareAsync(app, descriptorAsset, null, cancellationToken, extract: false);
+        var staged = PreparedDirectory(app);
+        Directory.CreateDirectory(staged);
+        File.Copy(downloaded.DownloadPath, Path.Combine(staged, asset.Name));
+        File.Copy(metadata.DownloadPath, Path.Combine(staged, "toolbox-lifecycle.json"));
+        var descriptor = LifecycleCapabilities.Load(staged, app.Id)!;
+        var entry = descriptor.ResolveEntry(action);
+        if (!string.Equals(entry.Path, Path.Combine(staged, asset.Name), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The capability entry point is not the separately verified installer. Use the complete lifecycle ZIP.");
+        return new(downloaded.DownloadPath, entry.Path)
+        { Capabilities = descriptor, PayloadVersion = ReadPayloadVersion(app, descriptor, action) };
+    }
+
+    // Call only for the freshly extracted, digest-verified primary package. A release
+    // tag or a companion application's version cannot establish the requested payload.
+    private static string? ReadPayloadVersion(AppDefinition app, LifecycleCapabilities capabilities, string action)
+    {
+        if (action is not ("install" or "update")) return null;
+        var payloads = app.ExecutableNames.SelectMany(name => Directory.GetFiles(capabilities.Root, name, SearchOption.AllDirectories))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var entry = capabilities.ResolveEntry(action);
+        var path = payloads.Length == 1 ? payloads[0] : payloads.Length == 0 && !entry.PowerShell ? entry.Path : null;
+        if (path is null) return null;
+        OwnedPaths.CheckNoReparse(path);
+        var info = FileVersionInfo.GetVersionInfo(path);
+        var version = string.IsNullOrWhiteSpace(info.ProductVersion) ? info.FileVersion : info.ProductVersion;
+        return AppVersion.Parse(version) is null ? null : version!.Trim().TrimStart('v', 'V').Split('+')[0];
+    }
+
+    private string PreparedDirectory(AppDefinition app) => Path.Combine(root, "Prepared", app.Id + "-" + Guid.NewGuid().ToString("N"));
+
     public static async Task<bool> VerifyAsync(string path, ReleaseAsset asset, CancellationToken cancellationToken)
     {
         if (new FileInfo(path).Length != asset.Size || asset.Digest is null) return false;
@@ -121,6 +203,7 @@ public sealed class PackageService(HttpClient http, string root)
 
     public static void ExtractSafely(string zipPath, string destination, CancellationToken cancellationToken)
     {
+        OwnedPaths.CheckNoReparse(destination);
         Directory.CreateDirectory(destination);
         var prefix = Path.GetFullPath(destination) + Path.DirectorySeparatorChar;
         using var zip = ZipFile.OpenRead(zipPath);

@@ -10,15 +10,21 @@ public static class PcAgentRuntime
 {
     // Match the detected executable in this desktop session. Setup and agents in
     // other sessions must not prevent this user from launching their tray agent.
-    public static bool? Read(string executable)
+    public static bool? Read(string? executable)
     {
         try
         {
+            // Recovery records have no executable. Never turn an empty name into
+            // an all-process scan or infer Not running from a missing identity.
+            if (string.IsNullOrWhiteSpace(executable) || !Path.IsPathFullyQualified(executable) || !File.Exists(executable)) return null;
+            var expectedPath = Path.GetFullPath(executable);
+            var name = Path.GetFileNameWithoutExtension(expectedPath);
+            if (string.IsNullOrWhiteSpace(name)) return null;
             using var current = Process.GetCurrentProcess();
             var session = current.SessionId;
             var running = false;
             var unknown = false;
-            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable)))
+            foreach (var process in Process.GetProcessesByName(name))
             using (process)
             {
                 try
@@ -39,7 +45,7 @@ public static class PcAgentRuntime
                     {
                         if (!GetExitCodeProcess(handle, out exitCode) || exitCode == 259) unknown = true;
                     }
-                    else if (string.Equals(Path.GetFullPath(path.ToString()), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase))
+                    else if (string.Equals(path.ToString(), expectedPath, StringComparison.OrdinalIgnoreCase))
                         running = true;
                 }
                 catch (InvalidOperationException) { } // The process exited during inspection.
@@ -47,7 +53,7 @@ public static class PcAgentRuntime
             }
             return running ? true : unknown ? null : false;
         }
-        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
+        catch (Exception error) when (error is Win32Exception or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
         {
             return null;
         }

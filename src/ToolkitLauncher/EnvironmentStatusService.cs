@@ -24,6 +24,8 @@ public static class EnvironmentStatusService
                 Convert.ToBase64String(Encoding.Unicode.GetBytes(script))], timeout.Token);
             if (local.Code != 0) throw new IOException("Windows environment details could not be read.");
             evidence = JsonSerializer.Deserialize<EnvironmentEvidence>(local.Output, GitHubClient.JsonOptions) ?? throw new InvalidDataException("Environment evidence is missing.");
+            // Both dashboard cards use the same installed pair/configuration rules.
+            ApplyAgentReadiness(evidence, InstallationService.Find(Catalog.Apps.Single(a => a.IsPcAgent), null, null));
             if (evidence.PcAgentConfiguration is { IsValid: true } agent)
             {
                 try
@@ -38,43 +40,8 @@ public static class EnvironmentStatusService
             using var details = JsonDocument.Parse(local.Output);
             var distro = details.RootElement.GetProperty("DistroName").GetString()!;
             var webPort = details.RootElement.GetProperty("WebPort").GetInt32();
-            if (evidence.Distro == false)
-            {
-                evidence.DistroRunning = false; evidence.Container = false; evidence.ContainerRunning = false;
-            }
-            else if (evidence.Distro == true && Regex.IsMatch(distro, "^[a-zA-Z0-9_.-]{1,64}$"))
-            {
-                var wsl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe");
-                var running = await RunAsync(wsl, ["--list", "--running", "--quiet"], timeout.Token);
-                if (running.Code == 0)
-                {
-                    evidence.DistroRunning = running.Output.Replace("\0", "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-                        .Any(name => string.Equals(name.Trim(), distro, StringComparison.OrdinalIgnoreCase));
-                    // Inspect only a distribution already reported running. Never start Docker or the container.
-                    if (evidence.DistroRunning == true)
-                    {
-                        const string command = "names=$(docker container ls -a --filter 'name=^/KLNKSVR-pro$' --format '{{.Names}}') || exit 2; " +
-                            "if [ \"$names\" != 'KLNKSVR-pro' ]; then printf '{\"Present\":false}'; else " +
-                            "docker container inspect --format '{\"Present\":true,\"Status\":{{json .State.Status}},\"Image\":{{json .Config.Image}},\"Version\":{{json (index .Config.Labels \"org.opencontainers.image.version\")}}}' KLNKSVR-pro; fi";
-                        var inspected = await RunAsync(wsl, ["--distribution", distro, "--user", "root", "--exec", "/bin/sh", "-c", command], timeout.Token);
-                        if (inspected.Code == 0)
-                        {
-                            using var container = JsonDocument.Parse(inspected.Output);
-                            evidence.Container = container.RootElement.GetProperty("Present").GetBoolean();
-                            if (evidence.Container == true)
-                            {
-                                evidence.ContainerImage = container.RootElement.GetProperty("Image").GetString();
-                                evidence.ContainerVersion = container.RootElement.GetProperty("Version").GetString();
-                                if (!Regex.IsMatch(evidence.ContainerImage ?? "", @"^(?:docker\.io/)?kiloview/klnk-pro(?::[\w.-]+|@sha256:[a-fA-F0-9]{64})?$"))
-                                { evidence.Container = false; evidence.Note += " The named container does not use the KiloLink image."; }
-                                evidence.ContainerRunning = container.RootElement.GetProperty("Status").GetString() == "running";
-                            }
-                        }
-                        else evidence.Note += " Docker or the KiloLink container could not be inspected.";
-                    }
-                }
-                else evidence.Note += " WSL running state could not be read.";
-            }
+            var wsl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe");
+            await ReadContainerAsync(evidence, distro, (arguments, token) => RunAsync(wsl, arguments, token), timeout.Token);
             if (evidence.ContainerRunning == true && webPort is > 0 and <= 65535)
             {
                 using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
@@ -92,6 +59,96 @@ public static class EnvironmentStatusService
         { evidence.Note += " Some environment details could not be read. Open Setup to review the installation."; }
         cancellationToken.ThrowIfCancellationRequested();
         return EnvironmentSnapshot.From(evidence, DateTimeOffset.Now);
+    }
+
+    public static void ApplyAgentReadiness(EnvironmentEvidence evidence, Installation? agent)
+    {
+        evidence.PcAgent = agent is { IsPresent: true };
+        evidence.PcAgentConfigured = agent?.PcAgent is { NeedsSetup: false };
+        evidence.PcAgentSetupDetail = agent?.PcAgent?.Detail;
+    }
+
+    private static async Task ReadContainerAsync(EnvironmentEvidence evidence, string distro,
+        Func<string[], CancellationToken, Task<(int Code, string Output)>> runWsl, CancellationToken token)
+    {
+        if (evidence.Distro == false)
+        {
+            evidence.DistroRunning = false; evidence.Container = false; evidence.ContainerRunning = false;
+            return;
+        }
+        if (evidence.Distro != true || !Regex.IsMatch(distro, @"\A[a-zA-Z0-9_.-]{1,64}\z")) return;
+        var running = await runWsl(["--list", "--running", "--quiet"], token);
+        if (running.Code != 0) { evidence.Note += " WSL running state could not be read."; return; }
+        evidence.DistroRunning = running.Output.Replace("\0", "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(name => string.Equals(name.Trim(), distro, StringComparison.OrdinalIgnoreCase));
+        // All Docker queries share one invocation of an already-running distribution.
+        // Never start/pull/update a distro, service, image or container to identify it.
+        if (evidence.DistroRunning != true) return;
+        const string command = "names=$(docker container ls -a --filter 'name=^/KLNKSVR-pro$' --format '{{.Names}}') || exit 2; " +
+            "if [ \"$names\" != 'KLNKSVR-pro' ]; then printf '{\"Present\":false}'; else " +
+            "container=$(docker container inspect --format '{\"Present\":true,\"Status\":{{json .State.Status}},\"Image\":{{json .Config.Image}},\"ImageId\":{{json .Image}},\"Version\":{{json (index .Config.Labels \"org.opencontainers.image.version\")}}}' KLNKSVR-pro) || exit 2; " +
+            "image_id=$(docker container inspect --format '{{.Image}}' KLNKSVR-pro) || exit 2; " +
+            "identity=$(docker image inspect --format '{\"Id\":{{json .Id}},\"RepoTags\":{{json .RepoTags}},\"RepoDigests\":{{json .RepoDigests}}}' \"$image_id\" 2>/dev/null) || identity=null; " +
+            "printf '{\"Container\":%s,\"ImageIdentity\":%s}' \"$container\" \"$identity\"; fi";
+        var inspected = await runWsl(["--distribution", distro, "--user", "root", "--exec", "/bin/sh", "-c", command], token);
+        if (inspected.Code == 0) ApplyContainerInspection(evidence, inspected.Output);
+        else evidence.Note += " Docker or the KiloLink container could not be inspected.";
+    }
+
+    public static void ApplyContainerInspection(EnvironmentEvidence evidence, string output)
+    {
+        evidence.Container = null; evidence.ContainerRunning = null;
+        try
+        {
+            using var document = JsonDocument.Parse(output);
+            var root = document.RootElement;
+            var container = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("Container", out var nested) ? nested : root;
+            if (container.ValueKind != JsonValueKind.Object || !container.TryGetProperty("Present", out var present))
+                throw new JsonException("Missing container presence evidence.");
+            if (present.ValueKind == JsonValueKind.False) { evidence.Container = false; evidence.ContainerRunning = false; return; }
+            if (present.ValueKind != JsonValueKind.True) throw new JsonException("Invalid container presence evidence.");
+            evidence.ContainerImage = ReadString(container, "Image");
+            evidence.ContainerVersion = ReadString(container, "Version");
+            evidence.ContainerRunning = ReadString(container, "Status") switch
+            {
+                "running" => true, "created" or "restarting" or "paused" or "exited" or "dead" or "removing" => false, _ => null
+            };
+            evidence.Container = IsKiloLinkImage(container, root.TryGetProperty("ImageIdentity", out var identity) ? identity : default);
+            if (evidence.Container != true) evidence.Note += evidence.Container == false
+                ? " The named container does not use the KiloLink image."
+                : " The named container's KiloLink image identity could not be verified.";
+        }
+        catch (JsonException) { evidence.Note += " Docker container evidence could not be read."; }
+    }
+
+    private static string? ReadString(JsonElement value, string name) => value.ValueKind == JsonValueKind.Object &&
+        value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String ? property.GetString() : null;
+
+    private static bool? IsKiloLinkImage(JsonElement container, JsonElement identity)
+    {
+        const string repository = @"\A(?:docker\.io/)?kiloview/klnk-pro(?::[\w.-]+|@sha256:[a-fA-F0-9]{64})?\z";
+        const string imageId = @"\Asha256:[a-fA-F0-9]{64}\z";
+        var reference = ReadString(container, "Image");
+        if (string.IsNullOrWhiteSpace(reference)) return null;
+        if (Regex.IsMatch(reference, repository)) return true;
+        if (!Regex.IsMatch(reference, imageId)) return reference.StartsWith("sha256:", StringComparison.Ordinal) ? null : false;
+        // Config.Image may be an immutable image ID. Verify the local image by that
+        // exact ID and its repository references; a familiar container name is not proof.
+        var immutableId = ReadString(container, "ImageId");
+        if (!string.Equals(reference, immutableId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(immutableId, ReadString(identity, "Id"), StringComparison.OrdinalIgnoreCase)) return null;
+        List<string> references = [];
+        foreach (var property in new[] { "RepoTags", "RepoDigests" })
+        {
+            if (!identity.TryGetProperty(property, out var values) || values.ValueKind == JsonValueKind.Null) continue;
+            if (values.ValueKind != JsonValueKind.Array) return null;
+            foreach (var value in values.EnumerateArray())
+            {
+                if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) return null;
+                references.Add(value.GetString()!);
+            }
+        }
+        return references.Count == 0 ? null : references.Any(value => Regex.IsMatch(value, repository));
     }
 
     private static async Task<(int Code, string Output)> RunAsync(string file, string[] arguments, CancellationToken token)

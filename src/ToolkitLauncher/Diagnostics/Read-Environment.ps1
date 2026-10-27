@@ -4,13 +4,30 @@ $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     Configuration = $null; Distro = $null; DistroName = 'KiloLink-Ubuntu'; OtherUser = $false
     Watchdog = $null; WatchdogRunning = $null; NdiTools = $null; NdiVersion = $null
-    Discovery = $null; DiscoveryRunning = $null; DiscoveryListening = $null
+    Discovery = $null; DiscoveryConfigured = $null; DiscoveryRunning = $null; DiscoveryListening = $null
     RestartPending = $false; WebPort = 0; NdiPort = 5959; Note = ''
     Roles = $null; ComponentReceiptInvalid = $false; PcAgent = $null; PcAgentConfigured = $null; PcAgentConfiguration = $null
+    ComponentReceipt = $null; RetainedServerRecord = $null; CurrentUserSid = $null; ServerRecoveryPending = $null
 }
 $stateRoot = Join-Path $env:ProgramData 'KiloLink'
 $configPath = Join-Path $stateRoot 'installer-config.json'
 $notes = New-Object 'System.Collections.Generic.List[string]'
+function Read-OwnerJournal([string]$Path) {
+    # Bound the read and permit the owner to replace its journal atomically.
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader = New-Object IO.StreamReader($stream)
+        try {
+            $buffer = New-Object char[] 1048577
+            $length = $reader.ReadBlock($buffer, 0, $buffer.Length)
+            if ($length -gt 1048576) { throw 'Owner journal exceeds the inspection limit.' }
+            $text = New-Object string($buffer, 0, $length)
+            if (-not $text.TrimStart().StartsWith('{')) { throw 'Owner journal must be an object.' }
+            $text | ConvertFrom-Json
+        } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
 try {
     $receiptPath = Join-Path $stateRoot 'installation-components.json'
     if (Test-Path -LiteralPath $receiptPath) {
@@ -19,8 +36,40 @@ try {
             throw 'Unsupported component receipt.'
         }
         $result.Roles = @($receipt.roles)
+        $result.ComponentReceipt = $receipt
     }
 } catch { $result.ComponentReceiptInvalid = $true; $notes.Add('The saved component receipt is unreadable or unsupported.') }
+try {
+    $result.CurrentUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $retainedPath = Join-Path $stateRoot 'retained-server.json'
+    if (Test-Path -LiteralPath $retainedPath) {
+        $result.RetainedServerRecord = Get-Content -LiteralPath $retainedPath -Raw | ConvertFrom-Json
+    }
+} catch { $notes.Add('Retained Server ownership could not be verified.') }
+try {
+    if ((Test-Path -LiteralPath (Join-Path $stateRoot 'pending-watchdog.json')) -or
+        (Test-Path -LiteralPath (Join-Path $stateRoot 'pending-process.json'))) {
+        $result.ServerRecoveryPending = $true
+    } else {
+        $journalPath = Join-Path $stateRoot 'last-operation.json'
+        if (Test-Path -LiteralPath $journalPath) {
+            $journal = Read-OwnerJournal $journalPath
+            if ($journal -isnot [pscustomobject] -or $journal.schemaVersion -isnot [int] -or $journal.schemaVersion -ne 1 -or
+                $journal.recoveryRequired -isnot [bool] -or $journal.outcome -notin @('Completed','NoChange','Running','RestartRequired','Failed','Partial','Incomplete','Cancelled','Blocked')) {
+                throw 'Owner journal recovery state is unsupported or ambiguous.'
+            }
+            $pending = $false
+            foreach ($name in @('pendingWatchdog','pendingNativeProcess')) {
+                $property = $journal.PSObject.Properties[$name]
+                if ($property -and $null -ne $property.Value) {
+                    if ($property.Value -isnot [pscustomobject]) { throw 'Owner journal pending state is ambiguous.' }
+                    $pending = $true
+                }
+            }
+            $result.ServerRecoveryPending = $pending -or $journal.recoveryRequired -or $journal.outcome -notin @('Completed','NoChange')
+        }
+    }
+} catch { $result.ServerRecoveryPending = $null; $notes.Add('Server recovery state could not be verified.') }
 try {
     $agentRoot = Join-Path $env:ProgramFiles 'NDI Configurator\PC Agent'
     $result.PcAgent = (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent.exe')) -and (Test-Path -LiteralPath (Join-Path $agentRoot 'NDI Configurator PC Agent Setup.exe'))
@@ -90,6 +139,7 @@ if (-not $result.OtherUser) {
 
 $ndiExe = $null
 try {
+    $result.DiscoveryConfigured = Test-Path -LiteralPath (Join-Path $env:ProgramData 'NDI\ndi-discovery-service.v1.json')
     $registered = foreach ($path in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
         if (Test-Path -LiteralPath $path) {
             foreach ($key in Get-ChildItem -LiteralPath $path) {
@@ -144,4 +194,4 @@ try {
     } elseif ($result.DiscoveryRunning -eq $false) { $result.DiscoveryListening = $false }
 } catch { $notes.Add('Some NDI installation or service details could not be verified.') }
 $result.Note = $notes -join ' '
-$result | ConvertTo-Json -Compress
+$result | ConvertTo-Json -Depth 8 -Compress

@@ -34,12 +34,106 @@ internal static partial class Program
         Environment.SetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH", AgentStatePath);
         try
         {
+            if (args.Contains("--toolkit-updates"))
+            {
+                ToolkitChannelUpdateTestsAsync().GetAwaiter().GetResult();
+                ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
+                Console.WriteLine($"PASS: {count} toolkit updater assertions.");
+                return 0;
+            }
+            if (args.Contains("--retained-fixture"))
+            {
+                EnvironmentTests();
+                EnvironmentRetainedTests();
+                Console.WriteLine($"PASS: {count} retained fixture assertions.");
+                return 0;
+            }
+            if (args.Contains("--candidate-version-admission"))
+            {
+                CandidateVersionAdmissionTestsAsync(args.SkipWhile(a => a != "--candidate-version-admission").Skip(1).First()).GetAwaiter().GetResult();
+                Console.WriteLine($"PASS: {count} candidate-version admission assertions.");
+                return 0;
+            }
+            if (args.Contains("--requested-version"))
+            {
+                RequestedVersionTests();
+                Console.WriteLine($"PASS: {count} requested-version assertions.");
+                return 0;
+            }
+            if (args.Contains("--package-version-routing"))
+            {
+                var app = new App(true) { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+                var context = SynchronizationContext.Current;
+                try
+                {
+                    SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+                    PackageVersionRoutingTests();
+                }
+                finally { SynchronizationContext.SetSynchronizationContext(context); app.Shutdown(); }
+                Console.WriteLine($"PASS: {count} package-version routing assertions.");
+                return 0;
+            }
+            if (args.Contains("--environment-retained"))
+            {
+                EnvironmentTests();
+                EnvironmentRetainedTests(args.Contains("--captured-evidence") ? args.SkipWhile(a => a != "--captured-evidence").Skip(1).First() : null);
+                var app = new App(true) { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+                try { EnvironmentRetainedUiTests(args.Contains("--ui") ? Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).First()) : null); }
+                finally { app.Shutdown(); }
+                Console.WriteLine($"PASS: {count} retained environment assertions.");
+                return 0;
+            }
+            if (args.Contains("--environment-image"))
+            {
+                EnvironmentTests();
+                EnvironmentImageTests(args.Contains("--captured-evidence") ? args.SkipWhile(a => a != "--captured-evidence").Skip(1).First() : null,
+                    args.Contains("--probe-script") ? Path.GetFullPath(args.SkipWhile(a => a != "--probe-script").Skip(1).First()) : null);
+                Console.WriteLine($"PASS: {count} environment image assertions.");
+                return 0;
+            }
+            if (args.Contains("--completion-ui") || args.Contains("--agent-runtime-recovery") || args.Contains("--recovery-repair") || args.Contains("--active-operation-ui") || args.Contains("--environment-open-setup") || args.Contains("--portable-guidance"))
+            {
+                var app = new App(true) { ShutdownMode = ShutdownMode.OnExplicitShutdown }; app.InitializeComponent();
+                var context = SynchronizationContext.Current;
+                try
+                {
+                    SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+                    if (args.Contains("--portable-guidance"))
+                    {
+                        var output = args.Contains("--ui") ? Path.GetFullPath(args.SkipWhile(a => a != "--ui").Skip(1).First()) : null;
+                        if (output is not null) Directory.CreateDirectory(output);
+                        PortableGuidanceTests(output);
+                    }
+                    else if (args.Contains("--environment-open-setup")) EnvironmentOpenSetupTests();
+                    else if (args.Contains("--active-operation-ui")) ActiveOperationDisplayTests();
+                    else if (args.Contains("--recovery-repair")) RecoveryRepairTests();
+                    else if (args.Contains("--agent-runtime-recovery")) PcAgentRuntimeRecoveryTests();
+                    else { PcAgentSetupFlowTests(); EnvironmentCompletionRoutingTests(); }
+                }
+                finally { SynchronizationContext.SetSynchronizationContext(context); app.Shutdown(); }
+                Console.WriteLine($"PASS: {count} focused UI assertions.");
+                return 0;
+            }
+            if (args.Contains("--lifecycle-read-sharing"))
+            {
+                LifecycleReadSharingTestsAsync().GetAwaiter().GetResult();
+                Console.WriteLine($"PASS: {count} lifecycle reader assertions.");
+                return 0;
+            }
             RunAsync(args.Contains("--live")).GetAwaiter().GetResult();
             NewApplicationPackageTestsAsync().GetAwaiter().GetResult();
+            LifecycleTestsAsync().GetAwaiter().GetResult();
+            RequestedVersionTests();
+            EnvironmentImageTests();
+            EnvironmentRetainedTests();
+            LifecycleReadSharingTestsAsync().GetAwaiter().GetResult();
+            if (args.Contains("--lifecycle-fixtures")) OwnerFixtureTestsAsync(args.SkipWhile(a => a != "--lifecycle-fixtures").Skip(1).First()).GetAwaiter().GetResult();
+            if (args.Contains("--lifecycle-inspect")) NativeInspectTestsAsync(args.SkipWhile(a => a != "--lifecycle-inspect").Skip(1).First()).GetAwaiter().GetResult();
             if (args.Contains("--live-new-apps")) LiveAsync(newAppsOnly: true).GetAwaiter().GetResult();
             GitHubCheckTestsAsync().GetAwaiter().GetResult();
             IconTestsAsync(args.Contains("--live-icons")).GetAwaiter().GetResult();
             ToolkitUpdateTestsAsync().GetAwaiter().GetResult();
+            ToolkitChannelUpdateTestsAsync().GetAwaiter().GetResult();
             EnvironmentTests();
             PreferenceRecoveryTests();
             CachedSetupVersionTests();
@@ -58,7 +152,8 @@ internal static partial class Program
         finally
         {
             Environment.SetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH", originalAgentState);
-            Directory.Delete(Temporary, true);
+            if (args.Contains("--lifecycle-fixtures") || args.Contains("--lifecycle-inspect")) Console.WriteLine("Retained lifecycle integration evidence: " + Temporary);
+            else Directory.Delete(Temporary, true);
         }
     }
     private static void Check(bool value, string label)
@@ -181,7 +276,7 @@ internal static partial class Program
         Check(new LocalState(local.Root).Preferences.Channels["job"] == ReleaseChannel.Development, "Channel selection persists");
         local.SaveCache(Catalog.Apps[0], new([stable, dev], DateTimeOffset.Now));
         Check(local.LoadCache(Catalog.Apps[0])!.Releases.Count == 2, "Release cache works offline");
-        var customApp = Catalog.Apps[2] with { KnownPaths = [], RegistryNames = [] };
+        var customApp = Catalog.Apps[2] with { KnownPaths = [], RegistryNames = [], MaintenanceDirectories = [] };
         var executable = typeof(MainWindow).Assembly.Location;
         local.Preferences.LaunchPaths[customApp.Id] = executable;
         var finder = new InstallationService(local);
@@ -194,7 +289,7 @@ internal static partial class Program
         var after = finder.Find(customApp);
         Check(before?.Path == after?.Path && before?.Version != after?.Version && after?.Version == InstallationService.ReadVersion(replaceable),
             "An internal update replacing the same executable is detected on the next check");
-        var environment = Catalog.Apps[0] with { KnownPaths = [replaceable], RegistryNames = [] };
+        var environment = Catalog.Apps[0] with { KnownPaths = [replaceable], RegistryNames = [], MaintenanceDirectories = [] };
         var saved = new SetupRecord(executable, "v1.0.0", "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))));
         Check(InstallationService.Find(environment, null, saved)?.Path == replaceable,
             "Older retained setup does not mask an externally updated persistent Environment launcher");
@@ -309,7 +404,9 @@ internal static partial class Program
     {
         var payload = File.ReadAllBytes(typeof(MainWindow).Assembly.Location);
         var version = SelfUpdateService.CurrentVersion;
-        var release = Release("v" + version);
+        var development = AppVersion.Parse(version)!.IsPrerelease;
+        var current = development ? "1.1.0-dev.1" : "1.1.0";
+        var release = Release("v" + version, development);
         var asset = new ReleaseAsset
         {
             Name = $"Production-Toolkit-{version}-win-x64-Setup.exe", Size = payload.Length,
@@ -317,21 +414,21 @@ internal static partial class Program
             Digest = "sha256:" + Convert.ToHexString(SHA256.HashData(payload))
         };
         release.Assets = [asset];
-        Check(ToolkitUpdates.Available("1.1.0", [release])?.Installer == asset, "Toolkit updater selects the version-matched Windows installer");
+        Check(ToolkitUpdates.Available(current, [release])?.Installer == asset, "Toolkit updater selects the version-matched Windows installer in the build's channel");
         Check(ToolkitUpdates.Available(version + "+build", [release]) is null, "Same toolkit version never prompts for reinstallation");
         Check(ToolkitUpdates.Available("99.0.0", [release]) is null, "Toolkit updater never downgrades a newer installation");
         release.Prerelease = true;
         Check(ToolkitUpdates.Available("1.1.0", [release]) is null, "Toolkit updater excludes prereleases");
         release.Prerelease = false; release.Draft = true;
-        Check(ToolkitUpdates.Available("1.1.0", [release]) is null, "Toolkit updater excludes drafts");
-        release.Draft = false;
+        Check(ToolkitUpdates.Available(current, [release]) is null, "Toolkit updater excludes drafts");
+        release.Draft = false; release.Prerelease = development;
         var portable = Release(release.Tag); portable.Assets = [new() { Name = "Production.Toolkit.exe" }];
-        Check(ToolkitUpdates.Available("1.1.0", [portable]) is null, "A portable executable cannot be mistaken for a toolkit installer");
+        Check(ToolkitUpdates.Available(current, [portable]) is null, "A portable executable cannot be mistaken for a toolkit installer");
         var wrong = Release(release.Tag); wrong.Assets = [new() { Name = "Production-Toolkit-9.0.0-win-x64-Setup.exe" }];
-        Check(ToolkitUpdates.Available("1.1.0", [wrong]) is null, "An installer for a different release is not offered");
+        Check(ToolkitUpdates.Available(current, [wrong]) is null, "An installer for a different release is not offered");
         var originalUrl = asset.DownloadUrl;
         asset.DownloadUrl = "https://example.com/setup.exe";
-        await ThrowsAsync<InvalidDataException>(() => { ToolkitUpdates.Available("1.1.0", [release]); return Task.CompletedTask; }, "Toolkit self-update rejects installers outside its GitHub repository");
+        await ThrowsAsync<InvalidDataException>(() => { ToolkitUpdates.Available(current, [release]); return Task.CompletedTask; }, "Toolkit self-update rejects installers outside its GitHub repository");
         asset.DownloadUrl = originalUrl;
         using var http = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) }));
         var service = new SelfUpdateService(new GitHubClient(http), http, Path.Combine(Temporary, "toolkit-updates"));
@@ -649,9 +746,18 @@ internal static partial class Program
         PreferenceRecoveryWindowTests();
         InstallerRefreshTests();
         PcAgentSetupFlowTests();
+        PackageVersionRoutingTests();
+        EnvironmentCompletionRoutingTests();
+        EnvironmentOpenSetupTests();
+        EnvironmentRetainedUiTests(output);
         PcAgentRuntimeFlowTests();
+        PcAgentRuntimeRecoveryTests();
+        RecoveryRepairTests();
+        ActiveOperationDisplayTests(output);
+        PortableGuidanceTests(output);
         JobDiscoveryFlowTests();
         PortableInstallFlowTests();
+        LifecycleUiTests();
         Check(app.PreviewMode && app.Windows.OfType<MainWindow>().All(window => window.PreviewMode),
             "UI dispatcher startup cannot open the normal dashboard or access live preferences and release feeds");
         ReviewUpdatePrompt(output);
@@ -665,6 +771,7 @@ internal static partial class Program
             var card = window.Cards[i];
             var release = Release(tags[i], i == 3);
             release.Assets = [new() { Name = i switch { 0 => "Kiloview-Environment-Setup.exe", 1 => "NDI-Job-Configurator.exe", 2 => "Resolume-Arena-Configurator-v0.3.5-win-x64-Setup.exe", 3 => "NDI-Configurator-PC-Agent-win-x64.zip", 4 => "UDP-to-NDI-Setup-1.0.3-x64.exe", _ => "TestCard-1.0.0-win-x64.zip" }, Size = i == 0 ? 1275904 : 147000000 }];
+            release.Assets[0].Digest = "sha256:" + new string('a', 64);
             card.Snapshot = new([release], new(2026, 9, 6, 12, 30, 0, TimeSpan.Zero));
             card.Installed = installed[i] is null ? null : new("C:\\Example\\app.exe", installed[i]) { PcAgentRunning = false };
             if (card.Definition.IsEnvironment) card.EnvironmentStatus = LiveEnvironment ?? EnvironmentSnapshot.From(FullEnvironment(), DateTimeOffset.Now);
@@ -685,7 +792,7 @@ internal static partial class Program
             (new Size(1920, 1040), 1d, "1080p-100", true),
             (new Size(2560, 1400), 1.5, "4k-150", true),
             (new Size(1920, 1040), 2d, "4k-200", true),
-            (new Size(1536, 832), 2.5, "4k-250", false),
+            (new Size(1536, 832), 2.5, "4k-250", true),
             (new Size(800, 560), 2d, "small-desktop-200", false)
         })
         {
@@ -715,7 +822,7 @@ internal static partial class Program
                 window.Cards[0].Busy = true; window.Cards[0].Progress = 48;
                 window.Cards[0].Activity = "Downloading · 48.0 / 100.0 MB";
                 window.Cards[1].Offline = true;
-                window.Cards[1].Activity = "Could not check releases. GitHub checks are paused until 16:04. Saved releases remain available. Check again afterward.";
+                window.Cards[1].ReleaseError = "Could not check releases. GitHub checks are paused until 16:04. Saved releases remain available. Check again afterward.";
                 foreach (var card in window.Cards) card.Recompute();
             }
             window.SetLayoutWidth(width);
@@ -724,6 +831,12 @@ internal static partial class Program
             root.UpdateLayout();
             var cards = Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10).ToArray();
             Check(cards.Length == Catalog.Apps.Length && cards.Length == 6, "UI " + label + ": six cards rendered");
+            if (label.StartsWith("busy"))
+                Check(Descendants<TextBlock>(root).Any(t => Rendered(t) && t.Text == "Updates unavailable") &&
+                    !Descendants<TextBlock>(root).Any(t => Rendered(t) && t.Text.Contains("GitHub checks are paused")),
+                    "Offline default cards render concise status with diagnostic text hidden in Details");
+            Check(!Descendants<ComboBox>(root).Any(Rendered) && !cards.Any(c => Descendants<TextBlock>(c).Any(t => Rendered(t) && t.Text == ((AppCard)c.DataContext).Description)),
+                "UI " + label + ": channel and explanatory copy stay behind Details");
             Check(cards.Select(c => Math.Round(c.ActualWidth, 2)).Distinct().Count() == 1, "UI " + label + ": equal card widths");
             if (label == "100")
             {
@@ -781,9 +894,9 @@ internal static partial class Program
                 scroll.ScrollToTop(); root.UpdateLayout();
             }
         }
-        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "running-agent", "stopped-agent", "unknown-agent", "incomplete-agent", "network-configurators" })
+        foreach (var scenario in new[] { "partial-environment", "unverified-environment", "nothing-installed", "setup-download-only", "client-only", "combined-host", "running-agent", "stopped-agent", "unknown-agent", "incomplete-agent", "recovery-agent", "recovery-agent-unavailable", "network-configurators" })
         {
-            foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.Offline = false; }
+            foreach (var card in window.Cards) { card.Busy = false; card.Activity = ""; card.ReleaseError = ""; card.Offline = false; card.RequiresCompleteRepair = false; card.RecoveryVersion = null; }
             var environment = window.Cards[0];
             var evidence = FullEnvironment();
             if (scenario == "partial-environment") evidence.Discovery = false;
@@ -798,6 +911,16 @@ internal static partial class Program
                 };
                 window.Cards[3].Snapshot = new([Release("v0.7.1")], DateTimeOffset.UtcNow);
                 window.Cards[3].Channel = ReleaseChannel.Stable;
+            }
+            else if (scenario.StartsWith("recovery-agent"))
+            {
+                var agent = window.Cards[3];
+                agent.Installed = new("", null) { IsPresent = false, Capabilities = new() { SupportedActions = ["inspect", "repair", "uninstall"] } };
+                var recovery = Release("v0.7.1");
+                recovery.Assets = [new() { Name = "NDI-Configurator-PC-Agent-win-x64.zip", Size = 100, Digest = "sha256:" + new string('a', 64),
+                    DownloadUrl = agent.Definition.RepositoryUrl + "/releases/download/v0.7.1/NDI-Configurator-PC-Agent-win-x64.zip" }];
+                agent.Snapshot = scenario == "recovery-agent" ? new([recovery], DateTimeOffset.UtcNow) : null;
+                agent.Channel = ReleaseChannel.Stable; agent.RequiresCompleteRepair = true; agent.RecoveryVersion = "0.7.1";
             }
             else if (scenario == "incomplete-agent")
             {
@@ -836,7 +959,8 @@ internal static partial class Program
                 {
                     var runtime = window.Cards[3];
                     var actions = Descendants<Button>(cards[3]).Where(Rendered).ToArray();
-                    Check(actions.Length == 1 && actions[0].Content?.ToString() == "Launch" && actions[0].IsEnabled == (scenario == "stopped-agent")
+                    Check(actions.Count(b => b.Content?.ToString() == "Launch") == 1 && actions.Single(b => b.Content?.ToString() == "Launch").IsEnabled == (scenario == "stopped-agent")
+                        && !actions.Any(b => b.Content?.ToString() is "Update" or "Up to date")
                         && Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == runtime.PcAgentRuntimeText),
                         "PC Agent runtime status and Launch availability render correctly: " + scenario);
                 }
@@ -848,13 +972,22 @@ internal static partial class Program
                         && Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == "Setup incomplete"),
                         "Incomplete agent renders an enabled recovery action and a disabled Launch button");
                 }
+                if (scenario.StartsWith("recovery-agent"))
+                {
+                    var actions = Descendants<Button>(cards[3]).Where(Rendered).ToArray();
+                    Check(actions.Count(b => b.Content?.ToString() == "Repair" && b.IsEnabled) == 1 &&
+                        !actions.Any(b => b.Content?.ToString() == "Install") &&
+                        Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == "Repair required") &&
+                        Descendants<TextBlock>(cards[3]).Any(t => Rendered(t) && t.Text == AppCard.RepairPackageNeeded) == (scenario == "recovery-agent-unavailable"),
+                        "Owner recovery renders Repair primary and package-needed guidance only when unavailable: " + scenario);
+                }
                 Check(cards.Chunk(window.Columns).All(row => row.Max(c => c.ActualHeight) - row.Min(c => c.ActualHeight) < 1),
                     scenario + " " + scale + ": each row has symmetrical card heights");
                 foreach (var card in cards)
                 {
                     var view = (AppCard)card.DataContext;
                     var buttons = Descendants<Button>(card).Where(Rendered).ToArray();
-                    if (view.ShowCompact && (buttons.Length != 1 + view.NetworkConfigurators.Count || buttons[0].Content?.ToString() != "Install"))
+                    if (view.ShowCompact && (buttons.Length != 1 + view.NetworkConfigurators.Count + (view.ShowReleaseHelp ? 1 : 0) || buttons[0].Content?.ToString() != "Install"))
                         throw new Exception("Unexpected action on an uninstalled card.");
                     if (view.ShowNetworkDiscovery && view.NetworkConfigurators.Count > 0)
                     {
@@ -869,13 +1002,32 @@ internal static partial class Program
                             throw new Exception("Environment or compact-card content outside card: " + scenario);
                     }
                 }
-                Check(Descendants<ScrollViewer>(root).First().ScrollableHeight < 1, scenario + " " + scale + ": all cards fit at startup");
+                var scenarioScroll = Descendants<ScrollViewer>(root).First();
+                if (scenarioScroll.ScrollableHeight >= 1) Console.WriteLine($"Layout evidence {scenario}: size={size}; columns={window.Columns}; overflow={scenarioScroll.ScrollableHeight}; desired={root.DesiredSize}");
+                Check(scenarioScroll.ScrollableHeight < 1, scenario + " " + scale + ": all cards fit at startup");
                 var bitmap = new RenderTargetBitmap((int)Math.Ceiling(client.Width * scale), (int)Math.Ceiling(client.Height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
                 bitmap.Render(root);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using var file = File.Create(Path.Combine(output, scenario + "-" + scale * 100 + ".png")); encoder.Save(file);
             }
         }
+        window.Cards[0].DetailsExpanded = true;
+        window.Cards[0].EnvironmentStatus = EnvironmentSnapshot.From(FullEnvironment(), DateTimeOffset.Now);
+        window.Cards[0].Recompute();
+        window.SetLayoutWidth(640);
+        root.Measure(new Size(640, 480)); root.Arrange(new Rect(0, 0, 640, 480)); root.UpdateLayout();
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle); root.UpdateLayout();
+        Check(Descendants<ComboBox>(root).Count(Rendered) == 1 && Descendants<ScrollViewer>(root).First().ScrollableHeight > 0,
+            "Expanded Details exposes the channel and retains vertical scrolling on a small desktop");
+        foreach (var card in Descendants<Border>(root).Where(b => b.DataContext is AppCard && b.CornerRadius.TopLeft == 10))
+            foreach (var control in Descendants<FrameworkElement>(card).Where(c => c is TextBlock or Button or ComboBox).Where(Rendered))
+            {
+                var bounds = control.TransformToAncestor(card).TransformBounds(new Rect(control.RenderSize));
+                if (bounds.Left < -1 || bounds.Right > card.ActualWidth + 1) throw new Exception("Expanded Details extends outside its card.");
+            }
+        var detailsBitmap = new RenderTargetBitmap(1600, 1200, 240, 240, PixelFormats.Pbgra32); detailsBitmap.Render(root);
+        var detailsEncoder = new PngBitmapEncoder(); detailsEncoder.Frames.Add(BitmapFrame.Create(detailsBitmap));
+        using (var detailsFile = File.Create(Path.Combine(output, "expanded-details-small-250.png"))) detailsEncoder.Save(detailsFile);
         PresentationTraceSources.DataBindingSource.Flush();
         Check(!bindingErrors.ToString().Contains("Error:"), "UI has no WPF binding errors");
         window.Close();
@@ -927,7 +1079,7 @@ internal static partial class Program
             RunFixture(true);
             Check(window.Cards.All(card => card.Installed is null && card.CanInstall && !card.CanLaunch),
                 "Maintenance removal refreshes cards even when setup exits with an error");
-            Check(window.Cards[0].Activity.Contains("code 1") && !window.Cards[0].InstallerRunning,
+            Check(window.Cards[0].Activity.Contains("returned 1") && !window.Cards[0].InstallerRunning,
                 "Refresh retains the installer failure and clears its running state");
         }
         finally { window.Close(); }
@@ -941,9 +1093,15 @@ internal static partial class Program
         var marker = Path.Combine(folder, "complete");
         var setup = Path.Combine(folder, "NDI Configurator PC Agent Setup.exe");
         var agent = Path.Combine(folder, "NDI Configurator PC Agent.exe");
+        var nativeCalls = Path.Combine(folder, "native-calls.txt");
+        var hold = Path.Combine(folder, "hold-native-setup");
+        var cancelSetup = Path.Combine(folder, "cancel-native-setup");
+        var protocolCalls = Path.Combine(folder, "protocol-calls.txt");
         var source = Path.Combine(folder, "fixture.cs");
         File.WriteAllText(source, "using System.IO; [assembly: System.Reflection.AssemblyFileVersion(\"1.0.0.0\")] "
-            + "[assembly: System.Reflection.AssemblyInformationalVersion(\"1.0.0\")] class Fixture { static int Main() { if (File.Exists("
+            + "[assembly: System.Reflection.AssemblyInformationalVersion(\"1.0.0\")] class Fixture { static int Main(string[] args) { "
+            + "File.AppendAllText(" + JsonSerializer.Serialize(nativeCalls) + ", args.Length == 0 ? \"normal\\n\" : \"unexpected arguments\\n\"); if(args.Length != 0) return 19; "
+            + "while(File.Exists(" + JsonSerializer.Serialize(hold) + ")) System.Threading.Thread.Sleep(25); if(File.Exists(" + JsonSerializer.Serialize(cancelSetup) + ")) return 1602; if (File.Exists("
             + JsonSerializer.Serialize(marker) + ")) File.WriteAllText(" + JsonSerializer.Serialize(AgentStatePath) + ", "
             + JsonSerializer.Serialize(ValidAgentState) + "); return 0; } }");
         var compiler = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"Microsoft.NET\Framework64\v4.0.30319\csc.exe"))
@@ -951,6 +1109,8 @@ internal static partial class Program
         foreach (var argument in new[] { "/nologo", "/target:winexe", "/out:" + setup, source }) compiler.ArgumentList.Add(argument);
         using (var build = Process.Start(compiler)!) { build.WaitForExit(); Check(build.ExitCode == 0, "Harmless PC Agent Setup fixture compiles"); }
         File.Copy(setup, agent);
+        FixtureAdapter(folder, "pc-agent", EmitSuccess.Replace("action='install'", "action=$r.action")
+            + "\nAdd-Content -LiteralPath " + PsQuote(protocolCalls) + " -Value $r.action");
         var definition = Catalog.Apps[3] with { KnownPaths = [agent], RegistryNames = [] };
         var dataRoot = Path.Combine(folder, "toolkit-state");
         var window = new MainWindow(dataRoot, true); window.Cards.Clear();
@@ -971,11 +1131,39 @@ internal static partial class Program
             Invoke("PrepareAsync");
             Check(card.NeedsPcAgentSetup && card.CanInstall && !card.CanLaunch && card.Activity.Contains("still incomplete"),
                 "Closing Setup without configuration keeps recovery available despite exit code zero");
-            File.WriteAllText(marker, "complete");
+            var lifecycle = (LifecycleCoordinator)typeof(MainWindow).GetField("lifecycle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window)!;
+            Check(File.ReadAllLines(nativeCalls).SequenceEqual(["normal"]) && !File.Exists(protocolCalls) &&
+                lifecycle.Operations.Last().Transport == "interactive-setup" && lifecycle.Operations.Last().Result is null,
+                "Unconfigured lifecycle-capable Agent uses normal Setup without arguments or invented protocol success");
+            File.WriteAllText(cancelSetup, "cancel");
             Invoke("PrepareAsync");
+            Check(card.NeedsPcAgentSetup && card.Activity.Contains("cancelled", StringComparison.OrdinalIgnoreCase) &&
+                lifecycle.Operations.Last().ExitCode == 1602 && lifecycle.Operations.Last().Result is null,
+                "Native Setup cancellation remains cancelled/incomplete without a fabricated lifecycle result");
+            File.Delete(cancelSetup);
+            File.WriteAllText(marker, "complete");
+            File.WriteAllText(hold, "wait");
+            var completion = (Task)typeof(MainWindow).GetMethod("PrepareAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [card])!;
+            try
+            {
+                Pump(WaitUntilAsync(() => card.InstallerRunning && lifecycle.Operations.Last().ProcessActive, TimeSpan.FromSeconds(5)));
+                Check(lifecycle.MutationBlocked && !completion.IsCompleted, "Native Setup retains active process tracking and mutation exclusion until its window exits");
+                var blocked = false;
+                try { lifecycle.Begin("job", "install", "legacy"); } catch (InvalidOperationException) { blocked = true; }
+                Check(blocked, "Another product cannot begin while native Agent configuration is open");
+            }
+            finally { File.Delete(hold); Pump(completion); }
             Check(card.CanLaunch && !card.CanInstall && !card.NeedsPcAgentSetup && card.Activity == "",
                 "Complete setup runs the local utility and refreshes the agent into a launchable state");
             Check(!Directory.Exists(Path.Combine(dataRoot, "Downloads")), "Local PC Agent recovery does not download a package");
+            Check(lifecycle.Operations.Last().Result is null && lifecycle.Operations.Last().Message.Contains("configured") &&
+                !lifecycle.Operations.Last().Pending && card.PcAgentRunning == false,
+                "Native Setup completion reports actual configuration/running evidence without a succeeded repair result");
+            var nativeCount = File.ReadAllLines(nativeCalls).Length;
+            Pump((Task)typeof(MainWindow).GetMethod("MaintainAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [card, "repair", true])!);
+            Check(File.ReadAllLines(protocolCalls).SequenceEqual(["inspect", "repair"]) && File.ReadAllLines(nativeCalls).Length == nativeCount &&
+                lifecycle.Operations.Last().Transport == "protocol" && lifecycle.Operations.Last().Request.Action == "repair",
+                "Configured Agent explicit Repair retains the declared package-only lifecycle route");
             File.Delete(AgentStatePath);
             Invoke("LaunchAsync");
             Check(File.Exists(AgentStatePath) && card.CanLaunch, "A stale Launch action rechecks missing configuration and opens Setup");

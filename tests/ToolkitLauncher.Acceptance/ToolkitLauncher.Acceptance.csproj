@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Toolkit.QA</AssemblyName>
+    <Version>1.4.0-qa.12</Version>
+    <InformationalVersion>1.4.0-qa.12</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <ApplicationManifest>../../src/ToolkitLauncher/app.manifest</ApplicationManifest>
+    <Description>Disposable VM acceptance host. Not a production launcher.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ToolkitLauncher/ToolkitLauncher.csproj" Condition="'$(FrozenToolkitDirectory)' == ''" />
+    <Reference Include="Production Toolkit" Condition="'$(FrozenToolkitDirectory)' != ''">
+      <HintPath>$(FrozenToolkitDirectory)/Production Toolkit.dll</HintPath>
+    </Reference>
+    <Reference Include="ToolkitLauncher.Core" Condition="'$(FrozenToolkitDirectory)' != ''">
+      <HintPath>$(FrozenToolkitDirectory)/ToolkitLauncher.Core.dll</HintPath>
+    </Reference>
+    <EmbeddedResource Include="../../src/ToolkitLauncher/App.xaml" LogicalName="ToolkitAcceptance.ProductionApp.xaml" />
+  </ItemGroup>
+</Project>

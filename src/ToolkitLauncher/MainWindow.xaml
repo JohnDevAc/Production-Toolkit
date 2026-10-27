@@ -17,11 +17,7 @@
     </Border>
     <StackPanel Grid.Column="1" VerticalAlignment="Center">
      <TextBlock Text="Production Toolkit" Foreground="White" FontSize="26" FontWeight="SemiBold"/>
-     <TextBlock Text="Install, update and launch your production apps." Foreground="#BDD0DA" Margin="0,5,12,0"/>
     </StackPanel>
-    <Border Grid.Column="2" Background="#284553" CornerRadius="5" Padding="10,6" VerticalAlignment="Center">
-     <TextBlock Text="WINDOWS x64" Foreground="#C4DAD9" FontSize="10" FontWeight="SemiBold"/>
-    </Border>
    </Grid>
   </Border>
   <ScrollViewer x:Name="MainScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="24,18,24,16">
@@ -37,8 +33,9 @@
     <ItemsControl x:Name="CardsControl" ItemsSource="{Binding Cards}" IsEnabled="{Binding DashboardEnabled}">
      <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:CardGrid Columns="{Binding Columns}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
      <ItemsControl.ItemTemplate><DataTemplate>
-      <Border Background="{Binding Theme.Background}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="10" Padding="20" Margin="4,0,4,12">
+      <Border Background="{Binding Theme.Background}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="10" Padding="18" Margin="4,0,4,10">
        <Grid>
+       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <Grid Visibility="{Binding ShowDetails, Converter={StaticResource VisibleIf}}">
         <Grid.RowDefinitions>
          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
@@ -51,51 +48,27 @@
           <Image Source="{Binding Icon}" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="{Binding Name}"/>
          </Border>
          <StackPanel Grid.Column="1">
-          <TextBlock Text="{Binding Subtitle}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" Margin="0,0,0,4"/>
           <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold"/>
          </StackPanel>
         </Grid>
-        <TextBlock Grid.Row="1" Text="{Binding Description}" Foreground="{StaticResource Muted}" Margin="0,10,0,10" MinHeight="36" LineHeight="18"/>
-        <Grid Grid.Row="2" Margin="0,0,0,10">
+        <Grid Grid.Row="2" Margin="0,12,0,10">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
          <StackPanel Margin="0,0,12,0">
-          <TextBlock Text="Installed version" FontSize="11" Foreground="{StaticResource Muted}"/>
+          <TextBlock Text="{Binding VersionLabel}" FontSize="11" Foreground="{StaticResource Muted}" Visibility="{Binding ShowEnvironment, Converter={StaticResource VisibleIf}}"/>
           <TextBlock Text="{Binding InstalledText}" ToolTip="{Binding VersionToolTip}" FontWeight="SemiBold" Margin="0,4,0,0"/>
          </StackPanel>
          <Border Grid.Column="1" Background="#F0F4F6" Padding="9,5" CornerRadius="5" VerticalAlignment="Center" MaxWidth="185" ToolTip="{Binding StatusToolTip}">
           <TextBlock Text="{Binding Status}" Foreground="{Binding StatusColor}" FontSize="11" FontWeight="SemiBold"/>
          </Border>
         </Grid>
-        <Border Grid.Row="3" Background="{Binding Theme.Panel}" BorderBrush="{Binding Theme.Border}" BorderThickness="1" CornerRadius="6" Padding="12">
-         <Grid>
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
-           <TextBlock Text="Latest release" FontSize="11" Foreground="{StaticResource Muted}"/>
-           <TextBlock Text="{Binding LatestText}" Margin="0,4,0,0" FontWeight="SemiBold"/>
-          </StackPanel>
-          <ComboBox Grid.Column="1" Width="132" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" IsEnabled="{Binding CanChoose}"
-           AutomationProperties.Name="Release channel" ToolTip="Choose the release channel used for downloads and update checks."/>
-         </Grid>
-        </Border>
         <StackPanel Grid.Row="4" Margin="0,8,0,0">
          <TextBlock Text="{Binding PcAgentRuntimeText}" Foreground="{Binding PcAgentRuntimeColour}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5"
           Visibility="{Binding ShowPcAgentRuntime, Converter={StaticResource VisibleIf}}"/>
-         <TextBlock Text="{Binding SetupNotice}" FontSize="11" Foreground="#94620F" Visibility="{Binding NeedsPcAgentSetup, Converter={StaticResource VisibleIf}}"/>
-         <TextBlock Text="{Binding ChannelNote}" FontSize="11" Foreground="{StaticResource Muted}" Visibility="{Binding ShowChannelNote, Converter={StaticResource VisibleIf}}"/>
          <StackPanel Visibility="{Binding ShowEnvironment, Converter={StaticResource VisibleIf}}">
           <TextBlock Text="{Binding EnvironmentSummary}" Foreground="{Binding EnvironmentColour}" FontSize="11" FontWeight="SemiBold" ToolTip="{Binding EnvironmentDetail}"/>
-          <ItemsControl ItemsSource="{Binding EnvironmentComponents}" Margin="0,5,0,0">
-           <ItemsControl.ItemTemplate><DataTemplate>
-            <Grid Margin="0,2,0,0" ToolTip="{Binding Detail}">
-             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-             <TextBlock Text="{Binding Name}" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,0,10,0"/>
-             <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="11" TextAlignment="Right"/>
-            </Grid>
-           </DataTemplate></ItemsControl.ItemTemplate>
-          </ItemsControl>
          </StackPanel>
         </StackPanel>
-        <Border Grid.Row="5" MinHeight="16"/>
+        <Border Grid.Row="5" MinHeight="10"/>
         <Grid Grid.Row="6">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
          <Button Content="{Binding InstallText}" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}" Visibility="{Binding ShowPrimary, Converter={StaticResource VisibleIf}}"/>
@@ -114,7 +87,7 @@
           <ProgressBar Height="5" Value="{Binding Progress}" IsIndeterminate="{Binding InstallerRunning}" VerticalAlignment="Center" Foreground="{Binding Theme.Primary}"/>
           <Button Grid.Column="1" Content="Cancel" Style="{StaticResource Link}" Margin="12,0,0,0" Click="CancelClick" Visibility="{Binding CanCancel, Converter={StaticResource VisibleIf}}"/>
          </Grid>
-         <TextBlock Text="{Binding Activity}" Foreground="#426779" FontSize="11" Margin="0,2,0,4">
+         <TextBlock Text="{Binding ActivitySummary}" Foreground="#426779" FontSize="11" Margin="0,2,0,4">
           <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
            <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
           </Style></TextBlock.Style>
@@ -124,9 +97,7 @@
        <StackPanel Visibility="{Binding ShowCompact, Converter={StaticResource VisibleIf}}" VerticalAlignment="Center" Margin="12,12">
         <Image Source="{Binding Icon}" Width="96" Height="96" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="{Binding Name}"/>
         <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" TextAlignment="Center" Margin="0,14,0,0"/>
-        <ComboBox Width="150" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" IsEnabled="{Binding CanChoose}" HorizontalAlignment="Center" Margin="0,16,0,12"
-         AutomationProperties.Name="Release channel" ToolTip="Choose the release channel to install."/>
-        <Button Content="Install" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}"/>
+        <Button Content="Install" ToolTip="{Binding DetailNote}" Style="{StaticResource Primary}" Background="{Binding Theme.Primary}" BorderBrush="{Binding Theme.Primary}" Click="InstallClick" IsEnabled="{Binding CanInstall}" Margin="0,16,0,0"/>
         <StackPanel Visibility="{Binding ShowNetworkDiscovery, Converter={StaticResource VisibleIf}}" Margin="0,8,0,0">
          <ItemsControl ItemsSource="{Binding NetworkConfigurators}">
           <ItemsControl.ItemTemplate><DataTemplate>
@@ -140,11 +111,49 @@
          <ProgressBar Height="5" Value="{Binding Progress}" IsIndeterminate="{Binding InstallerRunning}" VerticalAlignment="Center" Foreground="{Binding Theme.Primary}"/>
          <Button Grid.Column="1" Content="Cancel" Style="{StaticResource Link}" Margin="12,0,0,0" Click="CancelClick" Visibility="{Binding CanCancel, Converter={StaticResource VisibleIf}}"/>
         </Grid>
-        <TextBlock Text="{Binding Activity}" Foreground="#426779" FontSize="11" Margin="0,8,0,0" TextAlignment="Center">
+        <TextBlock Text="{Binding ActivitySummary}" Foreground="#426779" FontSize="11" Margin="0,8,0,0" TextAlignment="Center">
          <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
           <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
          </Style></TextBlock.Style>
         </TextBlock>
+       </StackPanel>
+       <StackPanel Grid.Row="1">
+        <TextBlock Text="{Binding ShortReason}" FontSize="11" Foreground="#94620F" Margin="0,3,0,0">
+         <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+          <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
+         </Style></TextBlock.Style>
+        </TextBlock>
+        <WrapPanel Margin="0,2,0,0">
+         <WrapPanel.Resources><Style TargetType="Button" BasedOn="{StaticResource Link}"><Setter Property="MinHeight" Value="24"/><Setter Property="Padding" Value="0,2"/></Style></WrapPanel.Resources>
+         <Button Content="Repair" Click="RepairClick" IsEnabled="{Binding CanRepair}" Visibility="{Binding ShowPortableRepairLink, Converter={StaticResource VisibleIf}}" Margin="0,0,16,0"/>
+         <Button Content="Uninstall" Click="UninstallClick" IsEnabled="{Binding CanUninstall}" Visibility="{Binding ShowMaintenance, Converter={StaticResource VisibleIf}}" Margin="0,0,16,0"/>
+         <Button Content="Recheck" Click="RecheckClick" IsEnabled="{Binding CanRecheck}" Visibility="{Binding ShowPendingRecheck, Converter={StaticResource VisibleIf}}" Margin="0,0,16,0"/>
+         <Button Content="Open releases" Click="ReleasesClick" Visibility="{Binding ShowReleaseHelp, Converter={StaticResource VisibleIf}}"/>
+        </WrapPanel>
+        <Expander Header="Details" IsExpanded="{Binding DetailsExpanded, Mode=TwoWay}" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,4,0,0">
+         <StackPanel Margin="0,6,0,0">
+          <ComboBox Width="150" HorizontalAlignment="Left" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" IsEnabled="{Binding CanChoose}" Margin="0,0,0,6"
+           AutomationProperties.Name="Release channel" ToolTip="Choose the release channel."/>
+          <TextBlock Text="{Binding Description}" Margin="0,0,0,5"/>
+          <TextBlock Text="{Binding LatestText, StringFormat=Latest release: {0}}"/>
+          <TextBlock Text="{Binding ChannelNote}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding StatusToolTip}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding ReleaseError}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding InlineReason}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding DependencyNote}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding ActivityDetail}" Margin="0,4,0,0"/>
+          <ItemsControl ItemsSource="{Binding EnvironmentComponents}" Margin="0,5,0,0">
+           <ItemsControl.ItemTemplate><DataTemplate><StackPanel Margin="0,3,0,0">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding Status}"/><TextBlock Text="{Binding Detail}"/>
+           </StackPanel></DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <WrapPanel>
+           <Button Content="Repair" Style="{StaticResource Link}" Click="RepairClick" IsEnabled="{Binding CanRepair}" Visibility="{Binding ShowDetailsRepair, Converter={StaticResource VisibleIf}}" Margin="0,0,16,0"/>
+           <Button Content="Recheck" Style="{StaticResource Link}" Click="RecheckClick" IsEnabled="{Binding CanRecheck}" Visibility="{Binding ShowRecheck, Converter={StaticResource VisibleIf}}"/>
+          </WrapPanel>
+         </StackPanel>
+        </Expander>
        </StackPanel>
        </Grid>
       </Border>

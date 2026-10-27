@@ -62,7 +62,7 @@ internal static partial class Program
             "Portable launch location and executable version survive Toolkit restart");
         var second = await packages.InstallPortableAsync(TestCardDefinition, asset, state.ApplicationsRoot, null, default);
         Check(first != second && File.Exists(first), "Portable update stages a fresh folder without replacing a previous or running copy");
-        var settings = Path.Combine(state.Root, "settings.json");
+        var settings = Path.Combine(state.Root, "Receipts", TestCardDefinition.Id + ".json");
         var before = File.ReadAllBytes(settings);
         var saveFailed = false;
         using (var locked = File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -70,9 +70,9 @@ internal static partial class Program
             try { service.RegisterPortable(TestCardDefinition, second); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { saveFailed = true; }
         }
-        Check(saveFailed, "Portable preference-write failure is reported");
+        Check(saveFailed, "Portable receipt-write failure is reported");
         Check(service.Find(TestCardDefinition)?.Path == first && File.ReadAllBytes(settings).SequenceEqual(before),
-            "Failed activation preserves the previous launch path and on-disk preferences");
+            "Failed activation preserves the previous launch path and durable inventory");
         foreach (var broken in new[] { TestCardZip(".runtime/dotnet.exe"), TestCardZip("TestCard.Worker.exe"), TestCardZip(duplicate: true), TestCardZip(traversal: true) })
         {
             var prior = Directory.GetDirectories(Path.Combine(state.ApplicationsRoot, TestCardDefinition.Id));

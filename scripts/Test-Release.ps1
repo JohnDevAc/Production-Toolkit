@@ -16,12 +16,31 @@ foreach ($entry in $entries) {
         throw ('Checksum mismatch: ' + $entry.Name)
     }
 }
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    $expectedNumeric = ($version -split '-', 2)[0] + '.0'
+    foreach ($name in $payloads[0..1]) {
+        $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $ReleaseDirectory $name))
+        if ($metadata.FileVersion -ne $expectedNumeric -or ($metadata.ProductVersion -split '\+', 2)[0] -ne $version) {
+            throw ('Binary numeric/semantic version differs from its release channel: ' + $name)
+        }
+    }
+}
 $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $ReleaseDirectory $payloads[2]))
 try {
     $zipNames = @($zip.Entries | ForEach-Object FullName)
     if (Compare-Object @('Production Toolkit.exe', 'README.md', 'INTEROPERABILITY.md', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md') $zipNames -CaseSensitive) {
         throw 'Portable ZIP contents do not retain the installed executable and documentation names.'
     }
+    foreach ($entry in $zip.Entries) {
+        $publishedName = if ($entry.Name -eq 'Production Toolkit.exe') { 'Production.Toolkit.exe' } else { $entry.Name }
+        $published = Join-Path $ReleaseDirectory $publishedName
+        $stream = $entry.Open(); $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+        finally { $stream.Dispose(); $sha.Dispose() }
+        if ($entry.Length -ne (Get-Item -LiteralPath $published).Length -or $hash -ne (Get-FileHash -LiteralPath $published -Algorithm SHA256).Hash) {
+            throw ('Portable ZIP entry differs from its published counterpart: ' + $entry.Name)
+        }
+    }
 }
 finally { $zip.Dispose() }
-Write-Host 'PASS: Release upload filenames, all 3 checksums and portable ZIP contents match the artifact contract.'
+Write-Host 'PASS: Release upload filenames, all 3 checksums, binary channel metadata on Windows and all 5 ZIP entry hashes match the artifact contract.'

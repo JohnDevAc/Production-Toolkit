@@ -44,6 +44,9 @@ public static class ReleaseSelection
         }
         return null;
     }
+
+    public static ReleaseAsset? ManagedPackage(AppDefinition app, Release release) =>
+        release.Assets.FirstOrDefault(a => app.LifecycleAssetPatterns.Any(pattern => Regex.IsMatch(a.Name, pattern, RegexOptions.IgnoreCase))) ?? Installer(app, release);
 }
 
 public sealed record AppVersion(int Major, int Minor, int Patch, int Revision, string? Pre) : IComparable<AppVersion>
@@ -85,11 +88,11 @@ public static class VersionStatus
     public static bool UsesEquivalentPackage(AppDefinition app, string? installedVersion, Release selected, IEnumerable<Release> releases)
     {
         var local = AppVersion.Parse(installedVersion);
-        var digest = ReleaseSelection.Installer(app, selected)?.Digest;
+        var digest = ReleaseSelection.ManagedPackage(app, selected)?.Digest;
         if (local is null || string.IsNullOrWhiteSpace(digest)) return false;
         return releases.Any(r => !r.Draft && r.IsDevelopment == local.IsPrerelease &&
             AppVersion.Parse(r.Tag)?.CompareTo(local) == 0 &&
-            string.Equals(ReleaseSelection.Installer(app, r)?.Digest, digest, StringComparison.OrdinalIgnoreCase));
+            string.Equals(ReleaseSelection.ManagedPackage(app, r)?.Digest, digest, StringComparison.OrdinalIgnoreCase));
     }
 
     public static UpdateState Evaluate(bool installed, string? installedVersion, Release? release, ReleaseChannel channel)
