@@ -20,7 +20,7 @@ if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
     $expectedNumeric = ($version -split '-', 2)[0] + '.0'
     foreach ($name in $payloads[0..1]) {
         $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $ReleaseDirectory $name))
-        if ($metadata.FileVersion -ne $expectedNumeric -or ($metadata.ProductVersion -split '\+', 2)[0] -ne $version) {
+        if ($metadata.FileVersion.Trim() -ne $expectedNumeric -or ($metadata.ProductVersion.Trim() -split '\+', 2)[0] -ne $version) {
             throw ('Binary numeric/semantic version differs from its release channel: ' + $name)
         }
     }
