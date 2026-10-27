@@ -101,7 +101,9 @@ internal static partial class Program
         var window = new MainWindow(root, true);
         typeof(MainWindow).GetField("packages", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, new PackageService(http, state.DownloadRoot));
         var card = window.Cards.Single(c => c.Definition.Id == TestCardDefinition.Id);
-        var release = Release("v" + InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location));
+        var version = InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location);
+        var release = Release("v" + version, AppVersion.Parse(version)?.IsPrerelease == true);
+        card.Channel = release.IsDevelopment ? ReleaseChannel.Development : ReleaseChannel.Stable;
         release.Assets = [asset]; card.Snapshot = new([release], DateTimeOffset.UtcNow);
         try
         {

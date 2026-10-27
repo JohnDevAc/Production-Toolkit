@@ -656,9 +656,12 @@ internal static partial class Program
         File.Copy(agent, setup);
         var definition = Catalog.Apps[3] with { KnownPaths = [agent], RegistryNames = [] };
         var installation = InstallationService.Find(definition, null, null)!;
-        var release = Release("v" + installation.Version);
+        var development = AppVersion.Parse(installation.Version)?.IsPrerelease == true;
+        var release = Release("v" + installation.Version, development);
         release.Assets = [new() { Name = "NDI-Configurator-PC-Agent-win-x64.zip", Size = 100 }];
-        var card = new AppCard(definition) { Installed = installation, Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true };
+        // This fixture copies the current Toolkit binary, including its build channel.
+        var card = new AppCard(definition) { Channel = development ? ReleaseChannel.Development : ReleaseChannel.Stable,
+            Installed = installation, Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true };
         Check(card.State == UpdateState.Current && card.NeedsPcAgentSetup && card.Status == "Setup incomplete",
             "Current agent binaries do not imply completed setup");
         Check(card.CanInstall && !card.CanLaunch && card.InstallText == "Complete setup" && card.ExistingSetupPath == setup,
@@ -666,7 +669,7 @@ internal static partial class Program
         Check(!File.Exists(AgentStatePath), "Readiness detection does not create agent state");
         card.Snapshot = null;
         Check(card.CanInstall && card.ExistingSetupPath == setup, "Local agent setup works without release metadata");
-        card.Snapshot = new([Release("v0.1.0")], DateTimeOffset.UtcNow);
+        card.Snapshot = new([Release(development ? "v0.1.0-dev.1" : "v0.1.0", development)], DateTimeOffset.UtcNow);
         Check(card.CanInstall && card.ExistingSetupPath == setup, "Recovery retains newer installed agent binaries");
         card.Snapshot = new([release], DateTimeOffset.UtcNow);
         File.WriteAllText(AgentStatePath, ValidAgentState);
@@ -692,7 +695,8 @@ internal static partial class Program
         card.Installed = InstallationService.Find(definition, null, null);
         Check(card.CanInstall && card.ExistingSetupPath is null && !card.CanLaunch,
             "A missing setup utility permits restoring the complete current release");
-        var older = Release("v0.1.0"); older.Assets = release.Assets; card.Snapshot = new([older], DateTimeOffset.UtcNow);
+        var older = Release(development ? "v0.1.0-dev.1" : "v0.1.0", development);
+        older.Assets = release.Assets; card.Snapshot = new([older], DateTimeOffset.UtcNow);
         Check(!card.CanInstall && card.SetupNotice.Contains("at least as new"), "Incomplete newer packages are not downgraded by recovery");
         File.WriteAllText(setup, "invalid executable");
         Check(PcAgentReadiness.Read(definition, installation).SetupPath is null, "Invalid local Setup cannot be reused");
@@ -1043,9 +1047,11 @@ internal static partial class Program
         for (var i = 0; i < 2; i++)
         {
             var definition = Catalog.Apps[i == 0 ? 1 : 3] with { KnownPaths = [paths[i]], RegistryNames = [] };
-            var release = Release("v" + InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location));
+            var version = InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location);
+            var release = Release("v" + version, AppVersion.Parse(version)?.IsPrerelease == true);
             release.Assets = [new() { Name = i == 0 ? "NDI-Job-Configurator.exe" : "NDI-Configurator-PC-Agent-win-x64.zip", Size = 100 }];
-            window.Cards.Add(new AppCard(definition) { Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true });
+            window.Cards.Add(new AppCard(definition) { Channel = release.IsDevelopment ? ReleaseChannel.Development : ReleaseChannel.Stable,
+                Snapshot = new([release], DateTimeOffset.UtcNow), Offline = true });
         }
         var snapshot = window.Cards[0].Snapshot;
         var run = typeof(MainWindow).GetMethod("RunSetupAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
