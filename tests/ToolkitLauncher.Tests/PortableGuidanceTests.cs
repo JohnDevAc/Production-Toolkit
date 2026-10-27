@@ -24,8 +24,10 @@ internal static partial class Program
         var networkAttempts = 0;
         using var offline = new HttpClient(new FakeHandler(_ => { networkAttempts++; throw new IOException("Offline fixture"); }));
         var window = new MainWindow(state.Root, true); window.Cards.Clear();
-        var release = Release("v" + InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location)); release.Assets = [asset];
-        var card = new AppCard(TestCardDefinition) { Snapshot = new([release], DateTimeOffset.UtcNow) }; window.Cards.Add(card);
+        var version = InstallationService.ReadVersion(typeof(MainWindow).Assembly.Location);
+        var release = Release("v" + version, AppVersion.Parse(version)?.IsPrerelease == true); release.Assets = [asset];
+        var card = new AppCard(TestCardDefinition) { Channel = release.IsDevelopment ? ReleaseChannel.Development : ReleaseChannel.Stable,
+            Snapshot = new([release], DateTimeOffset.UtcNow) }; window.Cards.Add(card);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var refresh = typeof(MainWindow).GetMethod("UpdateOperationCards", flags)!;
         var packages = typeof(MainWindow).GetField("packages", flags)!;
