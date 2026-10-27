@@ -1,6 +1,9 @@
 #ifndef AppVersion
   #error AppVersion must be supplied by the build script.
 #endif
+#ifndef AppFileVersion
+  #define AppFileVersion AppVersion + ".0"
+#endif
 #ifndef AppIdentity
   #define AppIdentity "JohnLightfoot.ProductionToolkit"
 #endif
@@ -50,7 +53,7 @@ CloseApplications=yes
 CloseApplicationsFilter={#AppExe}
 RestartApplications=no
 SetupMutex=Local\{#AppIdentity}.Setup
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#AppFileVersion}
 VersionInfoCompany=John Lightfoot
 VersionInfoDescription={#AppTitle} Setup
 VersionInfoCopyright=Copyright (C) 2026 John Lightfoot. Proprietary. Free for non-commercial use.
@@ -122,7 +125,7 @@ begin
   Result := '';
   // Block manual downgrades as well as automatic ones.
   if GetVersionNumbersString(ExpandConstant('{app}\{#AppExe}'), ExistingVersion) then
-    if StrToVersion(ExistingVersion, ExistingPacked) and StrToVersion('{#AppVersion}.0', NewPacked) and
+    if StrToVersion(ExistingVersion, ExistingPacked) and StrToVersion('{#AppFileVersion}', NewPacked) and
       (ComparePackedVersion(ExistingPacked, NewPacked) > 0) then
     begin
       Result := 'A newer version of Production Toolkit is already installed.';
